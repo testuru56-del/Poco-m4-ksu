@@ -10,8 +10,7 @@ jobs:
       - name: Setup Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-pip wget
-          pip3 install gdown
+          sudo apt-get install -y wget
 
       - name: Download Files (Stock Boot & KSU Image)
         run: |
@@ -19,14 +18,14 @@ jobs:
           cd repack
           
           echo "Downloading Stock 64MB boot.img..."
-          gdown 1FWNB6uFzPOsXR3o5APSP3k-Wg2hRYMdw -O stock_boot.img
+          # wget direct link bypass for Google Drive
+          wget -qO stock_boot.img "https://drive.google.com/uc?export=download&id=1FWNB6uFzPOsXR3o5APSP3k-Wg2hRYMdw"
           
           echo "Downloading 25MB KSU Engine..."
-          # Yahan tumhari nayi file ki ID lag gayi hai
-          gdown 1B4vYn0ZuPesPb40Q4ubs42_qrhxYyjuT -O kernel
+          wget -qO kernel "https://drive.google.com/uc?export=download&id=1B4vYn0ZuPesPb40Q4ubs42_qrhxYyjuT"
           
           echo "Downloading MagiskBoot Tool..."
-          wget https://github.com/vvb2060/magiskboot_build/releases/download/26.1/magiskboot_x86_64 -O magiskboot
+          wget -qO magiskboot "https://github.com/vvb2060/magiskboot_build/releases/download/26.1/magiskboot_x86_64"
           chmod +x magiskboot
 
       - name: Repack Image (The Magic)
@@ -37,7 +36,6 @@ jobs:
           ./magiskboot unpack stock_boot.img
           
           echo "Repacking with new KSU Engine..."
-          # Tool apne aap 'kernel' naam ki file ko uthayega aur andar pack kar dega
           ./magiskboot repack stock_boot.img fastboot_ksu_boot.img
 
       - name: Upload Final Fastboot Image

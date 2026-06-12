@@ -16,14 +16,16 @@ jobs:
         run: |
           git clone --depth=1 -b light-u-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource kernel-source
           
-      - name: Fix Xiaomi Missing Vendor Modules (MIHW NUKE)
+      - name: Fix Xiaomi Missing Vendor Modules (MIHW NUKE 2.0)
         run: |
           cd kernel-source
           # 1. Folder ko poori tarah delete karna
           rm -rf drivers/mihw
           # 2. Makefile se hatana
           sed -i '/mihw/d' drivers/Makefile || true
-          # 3. Har configuration file mein isko OFF karna
+          # 3. Kconfig se reference hatana (YEH NAYA FIX HAI)
+          sed -i '/mihw/d' drivers/Kconfig || true
+          # 4. Har configuration file mein isko OFF karna
           find arch/arm64/configs -type f -exec sed -i 's/CONFIG_MIHW=y/# CONFIG_MIHW is not set/g' {} +
           
       - name: Deep Patch DTC & Headers

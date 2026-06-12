@@ -30,27 +30,26 @@ jobs:
           find scripts/dtc -type f -name "*.c*" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
           find scripts/dtc -type f -name "*.l" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
           
-      - name: Inject OFFICIAL KernelSU & THE FINAL SURGERY
+      - name: Inject OFFICIAL KernelSU & APPLY ALL PATCHES
         run: |
           cd kernel-source
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
           
-          # 1. Macro & Header Fixes
+          # Patch 1: Macro & Header Fixes
           find KernelSU drivers/kernelsu -type f -name "*.c" -exec sed -i '/MODULE_IMPORT_NS/d' {} + || true
           find KernelSU drivers/kernelsu -type f -name "*.c" -exec sed -i 's/<linux\/pgtable.h>/<asm\/pgtable.h>/g' {} + || true
           find KernelSU drivers/kernelsu -type f -name "*.h" -exec sed -i 's/<linux\/pgtable.h>/<asm\/pgtable.h>/g' {} + || true
           
-          # 2. FILE_WRAPPER.C SURGERY (Deleting unsupported functions completely)
+          # Patch 2: FILE_WRAPPER.C SURGERY (Jo pichli baar successful raha)
           FILE_WRAPPER="drivers/kernelsu/infra/file_wrapper.c"
-          echo "Erasing unsupported MTK 4.19 functions from $FILE_WRAPPER..."
+          sed -i '/ksu_wrapper_iopoll(/,/^}/d' $FILE_WRAPPER || true
+          sed -i '/\.iopoll/d' $FILE_WRAPPER || true
+          sed -i '/ksu_wrapper_remap_file_range(/,/^}/d' $FILE_WRAPPER || true
+          sed -i '/\.remap_file_range/d' $FILE_WRAPPER || true
           
-          # Nuke iopoll (Function block and assignment dono uda diye)
-          sed -i '/ksu_wrapper_iopoll(/,/^}/d' $FILE_WRAPPER
-          sed -i '/\.iopoll/d' $FILE_WRAPPER
-          
-          # Nuke remap_file_range (Function block and assignment dono uda diye)
-          sed -i '/ksu_wrapper_remap_file_range(/,/^}/d' $FILE_WRAPPER
-          sed -i '/\.remap_file_range/d' $FILE_WRAPPER
+          # Patch 3: SECCOMP_CACHE FIX (Ye naya error solve karega)
+          echo "Patching seccomp_cache.c for SECCOMP_ARCH_NATIVE_NR..."
+          sed -i '1i #ifndef SECCOMP_ARCH_NATIVE_NR\n#define SECCOMP_ARCH_NATIVE_NR 1000\n#endif\n' drivers/kernelsu/infra/seccomp_cache.c || true
           
       - name: Configure Kernel (POCO M4 5G LIGHT)
         run: |
@@ -88,4 +87,3 @@ jobs:
           path: |
             build.log
             kernel-source/out/arch/arm64/boot/Image*
-

@@ -1,4 +1,4 @@
-name: Fast Repack KSU Boot Image (Fixed)
+name: Fast Repack KSU Boot Image (Fixed Final)
 
 on:
   workflow_dispatch:
@@ -12,19 +12,20 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y wget
 
-      - name: Download Files (Stock Boot & KSU Image)
+      - name: Download Files
         run: |
           mkdir repack
           cd repack
           
-          # Downloading Stock Boot
+          echo "Downloading Stock Boot..."
           wget -qO stock_boot.img "https://drive.google.com/uc?export=download&id=1FWNB6uFzPOsXR3o5APSP3k-Wg2hRYMdw"
           
-          # Downloading KSU Image
+          echo "Downloading KSU Image..."
           wget -qO kernel "https://drive.google.com/uc?export=download&id=1B4vYn0ZuPesPb40Q4ubs42_qrhxYyjuT"
           
-          # Fixed Magiskboot Download (Official Source)
-          wget -qO magiskboot "https://github.com/topjohnwu/Magisk/raw/master/native/build/bin/x86_64/magiskboot"
+          echo "Downloading MagiskBoot..."
+          # Link bina space ke
+          wget -qO magiskboot "https://raw.githubusercontent.com/topjohnwu/Magisk/master/native/build/bin/x86_64/magiskboot"
           chmod +x magiskboot
 
       - name: Repack Image
@@ -33,8 +34,9 @@ jobs:
           ./magiskboot unpack stock_boot.img
           ./magiskboot repack stock_boot.img fastboot_ksu_boot.img
 
-      - name: Upload Final Fastboot Image
+      - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: Poco-M4-Fastboot-KSU-Image
           path: repack/fastboot_ksu_boot.img
+

@@ -1,4 +1,4 @@
-name: Build KSU Next (Final Image)
+name: Build KSU Next (Final Image Fastboot)
 
 on:
   workflow_dispatch:
@@ -30,25 +30,21 @@ jobs:
           find scripts/dtc -type f -name "*.c*" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
           find scripts/dtc -type f -name "*.l" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
           
-      - name: Inject KernelSU-Next & APPLY ULTIMATE 4.19 PATCHES
+      - name: Inject KernelSU-Next & Apply Ultimate 4.19 Patches
         run: |
           cd kernel-source
           curl -ls https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh | bash -
           
-          echo "Applying legacy 4.x forces to KernelSU-Next..."
+          echo "Applying legacy 4.x fixes to KernelSU-Next..."
           
-          # 1. HACK: Force KSU to use 4.x paths instead of 5.x (Fixes SELinux and rules.c issues)
-          find KernelSU-Next drivers/kernelsu -type f -name "*.c" -exec sed -i 's/KERNEL_VERSION(5,/KERNEL_VERSION(9,/g' {} + || true
-          find KernelSU-Next drivers/kernelsu -type f -name "*.h" -exec sed -i 's/KERNEL_VERSION(5,/KERNEL_VERSION(9,/g' {} + || true
-          
-          # 2. Header and Macro Fixes
+          # 1. Header Patches
           find KernelSU-Next drivers/kernelsu -type f -name "*.c" -exec sed -i 's/<linux\/pgtable.h>/<asm\/pgtable.h>/g' {} + || true
           find KernelSU-Next drivers/kernelsu -type f -name "*.h" -exec sed -i 's/<linux\/pgtable.h>/<asm\/pgtable.h>/g' {} + || true
           find KernelSU-Next drivers/kernelsu -type f -name "*.c" -exec sed -i 's/<uapi\/linux\/mount.h>/<linux\/mount.h>/g' {} + || true
           find KernelSU-Next drivers/kernelsu -type f -name "*.h" -exec sed -i 's/<uapi\/linux\/mount.h>/<linux\/mount.h>/g' {} + || true
           find KernelSU-Next drivers/kernelsu -type f -name "*.c" -exec sed -i '/MODULE_IMPORT_NS/d' {} + || true
           
-          # 3. Safely comment out missing struct members without breaking syntax
+          # 2. file_wrapper.c Fix
           FILE_WRAPPER=$(find KernelSU-Next drivers/kernelsu -type f -name "file_wrapper.c" | head -n 1)
           if [ -n "$FILE_WRAPPER" ]; then
             sed -i '/\.iopoll/ s/^/\/\//' $FILE_WRAPPER || true
@@ -57,24 +53,22 @@ jobs:
             sed -i '/f_op->remap_file_range/ s/^/\/\//' $FILE_WRAPPER || true
           fi
           
-          # 4. Fix undeclared SECCOMP_ARCH_NATIVE_NR
+          # 3. seccomp_cache.c Fix
           SECCOMP=$(find KernelSU-Next drivers/kernelsu -type f -name "seccomp_cache.c" | head -n 1)
           if [ -n "$SECCOMP" ]; then
             sed -i '1i #ifndef SECCOMP_ARCH_NATIVE_NR\n#define SECCOMP_ARCH_NATIVE_NR 1000\n#endif\n' $SECCOMP || true
           fi
           
-          # 5. Fix dispatch.c missing locks and tasks headers
-          DISPATCH=$(find KernelSU-Next drivers/kernelsu -type f -name "dispatch.c" | head -n 1)
-          if [ -n "$DISPATCH" ]; then
-            sed -i '1i #include <linux/sched/signal.h>\n#include <linux/init_task.h>\nextern rwlock_t tasklist_lock;' $DISPATCH || true
-          fi
-          
-          # 6. Fix TWA_RESUME & filter_count
-          find KernelSU-Next drivers/kernelsu -type f -name "*.c" -exec sed -i 's/TWA_RESUME/true/g' {} + || true
-          find KernelSU-Next drivers/kernelsu -type f -name "*.c" -exec sed -i '/filter_count/ s/^/\/\//' {} + || true
-          
-          # 7. Fix pkg_observer fsnotify API
+          # 4. pkg_observer.c Fix
           find KernelSU-Next drivers/kernelsu -type f -name "*.c" -exec sed -i 's/handle_inode_event/handle_event/g' {} + || true
+          
+          # 5. THE ULTIMATE SELINUX PATCH (Fixes rules.c undeclared identifier 'selinux_state')
+          RULES_C=$(find KernelSU-Next drivers/kernelsu -type f -name "rules.c" | head -n 1)
+          if [ -n "$RULES_C" ]; then
+            echo "Applying 4.19 SELinux structural bypass to $RULES_C..."
+            sed -i 's/selinux_state\.policy/selinux_policy/g' $RULES_C || true
+            sed -i 's/&selinux_state/NULL/g' $RULES_C || true
+          fi
           
       - name: Configure Kernel (POCO M4 5G LIGHT)
         run: |
@@ -94,14 +88,14 @@ jobs:
           
           make O=out ARCH=arm64 olddefconfig
           
-      - name: Compile Kernel (Strict Mode)
+      - name: Compile Kernel (Strict Clean Build)
         run: |
           cd kernel-source
           set -e
           set -o pipefail
           
           make -j$(nproc --all) O=out ARCH=arm64 \
-            CC=clang-14 LD=ld.lld-14 AR=llvm-ar-14 NM=llvm-nm-14 OBJCOPY=llvm-objcopy-14 OBJDUMP=llvm-objdump-14 STRIP=llvm-strip-14 \
+            CC=clang-14 lld-14 lld-14 AR=llvm-ar-14 NM=llvm-nm-14 OBJCOPY=llvm-objcopy-14 OBJDUMP=llvm-objdump-14 STRIP=llvm-strip-14 \
             CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
             HOSTCFLAGS="-fcommon -w" HOSTLDFLAGS="-z muldefs" KCFLAGS="-w" 2>&1 | tee ../build.log
           
@@ -111,10 +105,9 @@ jobs:
           mkdir -p raw-images
           find kernel-source/out/arch/arm64/boot -name "Image*" -exec cp {} raw-images/ \;
           
-      - name: Upload Raw Image (.img files)
+      - name: Upload Raw Image (.img format for Fastboot)
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: Poco-M4-Raw-Images
+          name: Poco-M4-Fastboot-Image
           path: raw-images/*
-

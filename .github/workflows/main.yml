@@ -1,4 +1,4 @@
-name: Build KSU Next for Poco M4 5G (light)
+name: Build KSU Next (Only Image)
 
 on:
   workflow_dispatch:
@@ -10,22 +10,17 @@ jobs:
       - name: Prepare build environment
         run: |
           sudo apt-get update
-          # Official Clang-14 aur LLVM-14 toolchain add kiya gaya hai
           sudo apt-get install -y bc bison build-essential ccache curl flex git gnupg gperf liblz4-tool libncurses-dev libssl-dev libxml2 libxml2-utils lzop rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi libyaml-dev clang-14 lld-14 llvm-14
           
       - name: Clone Xiaomi Kernel Source
         run: |
           git clone --depth=1 -b light-u-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource kernel-source
           
-      - name: Deep Patch & Disable Protections (LTO/CFI)
+      - name: Deep Patch & Disable Protections
         run: |
           cd kernel-source
-          
-          # DTC Fix (Jo pichli baar successfully kaam kar gaya tha)
           find scripts/dtc -type f -name "*.c*" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
           find scripts/dtc -type f -name "*.l" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
-          
-          # KSU clash rokne ke liye LTO aur CFI ko completely disable karna
           sed -i 's/CONFIG_LTO=y/# CONFIG_LTO is not set/g' arch/arm64/configs/defconfig
           sed -i 's/CONFIG_LTO_CLANG=y/# CONFIG_LTO_CLANG is not set/g' arch/arm64/configs/defconfig
           sed -i 's/CONFIG_CFI_CLANG=y/# CONFIG_CFI_CLANG is not set/g' arch/arm64/configs/defconfig
@@ -41,13 +36,15 @@ jobs:
           echo "CONFIG_KPROBE_EVENTS=y" >> arch/arm64/configs/defconfig
           echo "CONFIG_OVERLAY_FS=y" >> arch/arm64/configs/defconfig
           
-      - name: Compile Kernel (With Log Catcher)
-        id: compile
+      - name: Compile Kernel
         run: |
           cd kernel-source
           make O=out ARCH=arm64 defconfig
           
-          # Clang-14 force kiya gaya hai aur poora output build.log mein save hoga
+          # STRICT ERROR CHECKING: Ab error chup nahi sakega
+          set -e
+          set -o pipefail
+          
           make -j$(nproc --all) O=out ARCH=arm64 \
             CC=clang-14 \
             LD=ld.lld-14 \
@@ -62,29 +59,22 @@ jobs:
             HOSTLDFLAGS="-z muldefs" \
             KCFLAGS="-w" 2>&1 | tee ../build.log
           
-      - name: Upload Error Log (If Build Fails)
-        if: failure()
+      - name: Upload Error Log (Har haal mein upload hoga)
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: error-build-log
+          name: build-log
           path: build.log
           
-      - name: Setup AnyKernel3 and Package
+      - name: Extract Raw Kernel Images
         if: success()
         run: |
-          git clone https://github.com/osm0sis/AnyKernel3
-          cd AnyKernel3
+          mkdir -p raw-images
+          find kernel-source/out/arch/arm64/boot -name "Image*" -exec cp {} raw-images/ \;
           
-          sed -i 's/device.name1=maguro/device.name1=light/g' anykernel.sh
-          
-          find ../kernel-source/out/arch/arm64/boot -name "Image.gz*" -exec cp {} . \;
-          find ../kernel-source/out/arch/arm64/boot -name "Image" -exec cp {} . \;
-          
-          zip -r9 ../KSU-Next-Poco-M4-5G.zip *
-          
-      - name: Upload Kernel Zip
+      - name: Upload Raw Image (.img files)
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: KSU-Next-Poco-M4-5G
-          path: KSU-Next-Poco-M4-5G.zip
+          name: Poco-M4-Raw-Images
+          path: raw-images/*

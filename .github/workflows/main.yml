@@ -30,28 +30,27 @@ jobs:
           find scripts/dtc -type f -name "*.c*" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
           find scripts/dtc -type f -name "*.l" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
           
-      - name: Inject OFFICIAL KernelSU & Apply 4.19 Patches
+      - name: Inject OFFICIAL KernelSU & THE FINAL SURGERY
         run: |
           cd kernel-source
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
           
-          # 1. Macro & Header Fix
+          # 1. Macro & Header Fixes
           find KernelSU drivers/kernelsu -type f -name "*.c" -exec sed -i '/MODULE_IMPORT_NS/d' {} + || true
           find KernelSU drivers/kernelsu -type f -name "*.c" -exec sed -i 's/<linux\/pgtable.h>/<asm\/pgtable.h>/g' {} + || true
           find KernelSU drivers/kernelsu -type f -name "*.h" -exec sed -i 's/<linux\/pgtable.h>/<asm\/pgtable.h>/g' {} + || true
           
-          # 2. FILE_WRAPPER.C SURGERY (Targeting exact errors from the log)
+          # 2. FILE_WRAPPER.C SURGERY (Deleting unsupported functions completely)
           FILE_WRAPPER="drivers/kernelsu/infra/file_wrapper.c"
-          echo "Patching $FILE_WRAPPER for missing MTK 4.19 functions..."
+          echo "Erasing unsupported MTK 4.19 functions from $FILE_WRAPPER..."
           
-          # iopoll fix
-          sed -i 's/return orig->f_op->iopoll(kiocb, spin);/return 0;/g' $FILE_WRAPPER || true
-          sed -i 's/p->ops.iopoll = fp->f_op->iopoll ? ksu_wrapper_iopoll : NULL;/p->ops.iopoll = NULL;/g' $FILE_WRAPPER || true
+          # Nuke iopoll (Function block and assignment dono uda diye)
+          sed -i '/ksu_wrapper_iopoll(/,/^}/d' $FILE_WRAPPER
+          sed -i '/\.iopoll/d' $FILE_WRAPPER
           
-          # remap_file_range fix
-          sed -i 's/REMAP_FILE_DEDUP/0/g' $FILE_WRAPPER || true
-          sed -i 's/return orig->f_op->remap_file_range/return 0; \/\//g' $FILE_WRAPPER || true
-          sed -i 's/p->ops.remap_file_range = fp->f_op->remap_file_range ? ksu_wrapper_remap_file_range : NULL;/p->ops.remap_file_range = NULL;/g' $FILE_WRAPPER || true
+          # Nuke remap_file_range (Function block and assignment dono uda diye)
+          sed -i '/ksu_wrapper_remap_file_range(/,/^}/d' $FILE_WRAPPER
+          sed -i '/\.remap_file_range/d' $FILE_WRAPPER
           
       - name: Configure Kernel (POCO M4 5G LIGHT)
         run: |

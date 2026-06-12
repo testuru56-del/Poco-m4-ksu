@@ -27,30 +27,26 @@ jobs:
           find scripts/dtc -type f -name "*.c*" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
           find scripts/dtc -type f -name "*.l" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
           
-      - name: Inject KernelSU Next
+      - name: Inject KernelSU Next & Fix 4.19 Headers
         run: |
           cd kernel-source
           curl -ls https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh | bash -
           
-      - name: Auto-Detect True Defconfig & Configure
+          # FIX: 4.19 Kernel compatibility patch for KernelSU
+          echo "Patching pgtable.h for 4.19 compatibility..."
+          find drivers/kernelsu -type f -name "*.c" -exec sed -i 's/<linux\/pgtable.h>/<asm\/pgtable.h>/g' {} +
+          find drivers/kernelsu -type f -name "*.h" -exec sed -i 's/<linux\/pgtable.h>/<asm\/pgtable.h>/g' {} +
+          
+      - name: Configure Kernel (STRICTLY defconfig)
         run: |
           cd kernel-source
           
-          echo "🔍 Searching for the real Poco M4 5G defconfig..."
-          TRUE_DEFCONFIG=$(find arch/arm64/configs -type f -name "*defconfig" | grep -iE "light|mt6833" | grep -v "debug" | head -n 1 | sed 's|arch/arm64/configs/||')
-          
-          if [ -z "$TRUE_DEFCONFIG" ]; then
-             echo "⚠️ Couldn't find specific config. Falling back to defconfig..."
-             TRUE_DEFCONFIG="defconfig"
-          fi
-          
           echo "========================================="
-          echo "✅ USING REAL DEVICE CONFIG: $TRUE_DEFCONFIG"
+          echo "✅ USING REAL DEVICE CONFIG: defconfig"
           echo "========================================="
           
-          make O=out ARCH=arm64 $TRUE_DEFCONFIG
+          make O=out ARCH=arm64 defconfig
           
-          # Injecting KernelSU and disabling crashing Memory Protections
           echo "CONFIG_KPROBES=y" >> out/.config
           echo "CONFIG_HAVE_KPROBES=y" >> out/.config
           echo "CONFIG_KPROBE_EVENTS=y" >> out/.config
@@ -102,4 +98,3 @@ jobs:
         with:
           name: Poco-M4-Raw-Images
           path: raw-images/*
-

@@ -1,4 +1,4 @@
-name: Fast Repack KSU Boot Image (No Compilation)
+name: Fast Repack KSU Boot Image (Fixed)
 
 on:
   workflow_dispatch:
@@ -17,25 +17,20 @@ jobs:
           mkdir repack
           cd repack
           
-          echo "Downloading Stock 64MB boot.img..."
-          # wget direct link bypass for Google Drive
+          # Downloading Stock Boot
           wget -qO stock_boot.img "https://drive.google.com/uc?export=download&id=1FWNB6uFzPOsXR3o5APSP3k-Wg2hRYMdw"
           
-          echo "Downloading 25MB KSU Engine..."
+          # Downloading KSU Image
           wget -qO kernel "https://drive.google.com/uc?export=download&id=1B4vYn0ZuPesPb40Q4ubs42_qrhxYyjuT"
           
-          echo "Downloading MagiskBoot Tool..."
-          wget -qO magiskboot "https://github.com/vvb2060/magiskboot_build/releases/download/26.1/magiskboot_x86_64"
+          # Fixed Magiskboot Download (Official Source)
+          wget -qO magiskboot "https://github.com/topjohnwu/Magisk/raw/master/native/build/bin/x86_64/magiskboot"
           chmod +x magiskboot
 
-      - name: Repack Image (The Magic)
+      - name: Repack Image
         run: |
           cd repack
-          
-          echo "Unpacking Stock Boot..."
           ./magiskboot unpack stock_boot.img
-          
-          echo "Repacking with new KSU Engine..."
           ./magiskboot repack stock_boot.img fastboot_ksu_boot.img
 
       - name: Upload Final Fastboot Image

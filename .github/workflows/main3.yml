@@ -1,100 +1,46 @@
-name: Build & Repack KSU Boot Image (Fastboot)
+name: Fast Repack KSU Boot Image (No Compilation)
 
 on:
   workflow_dispatch:
 
 jobs:
-  build-kernel:
+  repack-boot:
     runs-on: ubuntu-22.04
     steps:
-      - name: Prepare build environment
+      - name: Setup Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential ccache curl flex git gnupg gperf liblz4-tool libncurses-dev libssl-dev libxml2 libxml2-utils lzop rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 python3-pip gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi libyaml-dev clang-14 lld-14 llvm-14
+          sudo apt-get install -y python3-pip wget
           pip3 install gdown
-          
-      - name: Clone Xiaomi Kernel Source
-        run: |
-          git clone --depth=1 -b light-u-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource kernel-source
-          
-      - name: Fix Xiaomi Missing Vendor Modules (MIHW NUKE)
-        run: |
-          cd kernel-source
-          rm -rf drivers/mihw
-          sed -i '/mihw/d' drivers/Makefile || true
-          sed -i '/mihw/d' drivers/Kconfig || true
-          find arch/arm64/configs -type f -exec sed -i 's/CONFIG_MIHW=y/# CONFIG_MIHW is not set/g' {} +
-          
-      - name: Deep Patch DTC Error
-        run: |
-          cd kernel-source
-          find scripts/dtc -type f -name "*.c*" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
-          find scripts/dtc -type f -name "*.l" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
-          
-      - name: Inject KernelSU (v0.9.5 STABLE)
-        run: |
-          cd kernel-source
-          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s v0.9.5
-          
-      - name: Configure Kernel
-        run: |
-          cd kernel-source
-          make O=out ARCH=arm64 light_defconfig
-          
-          echo "CONFIG_KPROBES=y" >> out/.config
-          echo "CONFIG_HAVE_KPROBES=y" >> out/.config
-          echo "CONFIG_KPROBE_EVENTS=y" >> out/.config
-          echo "CONFIG_OVERLAY_FS=y" >> out/.config
-          echo "CONFIG_KSU=y" >> out/.config
-          echo "CONFIG_KSU_SUCOMPAT=y" >> out/.config
-          echo "CONFIG_KSU_MAGIC_MOUNT=y" >> out/.config
-          
-          echo "# CONFIG_MIHW is not set" >> out/.config
-          sed -i 's/CONFIG_LTO=y/# CONFIG_LTO is not set/g' out/.config
-          sed -i 's/CONFIG_LTO_CLANG=y/# CONFIG_LTO_CLANG is not set/g' out/.config
-          sed -i 's/CONFIG_CFI_CLANG=y/# CONFIG_CFI_CLANG is not set/g' out/.config
-          echo "CONFIG_LTO_NONE=y" >> out/.config
-          
-          make O=out ARCH=arm64 olddefconfig
-          
-      - name: Compile Kernel
-        run: |
-          cd kernel-source
-          set -e
-          set -o pipefail
-          
-          make -j$(nproc --all) O=out ARCH=arm64 \
-            CC=clang-14 LD=ld.lld-14 AR=llvm-ar-14 NM=llvm-nm-14 OBJCOPY=llvm-objcopy-14 OBJDUMP=llvm-objdump-14 STRIP=llvm-strip-14 \
-            CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            HOSTCFLAGS="-fcommon -w" HOSTLDFLAGS="-z muldefs" KCFLAGS="-w" 2>&1 | tee ../build.log
 
-      - name: Download Stock Boot & Magiskboot
-        if: success()
+      - name: Download Files (Stock Boot & KSU Image)
         run: |
           mkdir repack
           cd repack
-          # GDrive se tumhari Stock boot.img download hogi
+          
+          echo "Downloading Stock 64MB boot.img..."
           gdown 1FWNB6uFzPOsXR3o5APSP3k-Wg2hRYMdw -O stock_boot.img
           
-          # Official MagiskBoot Tool Download
+          echo "Downloading 25MB KSU Engine..."
+          # Yahan tumhari nayi file ki ID lag gayi hai
+          gdown 1B4vYn0ZuPesPb40Q4ubs42_qrhxYyjuT -O kernel
+          
+          echo "Downloading MagiskBoot Tool..."
           wget https://github.com/vvb2060/magiskboot_build/releases/download/26.1/magiskboot_x86_64 -O magiskboot
           chmod +x magiskboot
 
-      - name: Repack Kernel into Stock Boot
-        if: success()
+      - name: Repack Image (The Magic)
         run: |
           cd repack
-          # 1. Gaadi kholo (MTK header bypass ke sath)
+          
+          echo "Unpacking Stock Boot..."
           ./magiskboot unpack stock_boot.img
           
-          # 2. Naya Engine fit karo
-          cp ../kernel-source/out/arch/arm64/boot/Image kernel
-          
-          # 3. Wapas pack kardo
+          echo "Repacking with new KSU Engine..."
+          # Tool apne aap 'kernel' naam ki file ko uthayega aur andar pack kar dega
           ./magiskboot repack stock_boot.img fastboot_ksu_boot.img
 
-      - name: Upload Repacked Fastboot Image
-        if: success()
+      - name: Upload Final Fastboot Image
         uses: actions/upload-artifact@v4
         with:
           name: Poco-M4-Fastboot-KSU-Image

@@ -16,42 +16,32 @@ jobs:
         run: |
           git clone --depth=1 -b light-u-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource kernel-source
           
-      - name: Fix Xiaomi Missing Vendor Modules
-        run: |
-          cd kernel-source
-          sed -i '/mihw/d' drivers/Makefile || true
-          
-      - name: Deep Patch DTC & Headers
-        run: |
-          cd kernel-source
-          find scripts/dtc -type f -name "*.c*" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
-          find scripts/dtc -type f -name "*.l" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
-          
-      - name: Inject KernelSU Next & Fix 4.19 Headers
+      - name: Inject KernelSU Next & Apply Surgery
         run: |
           cd kernel-source
           curl -ls https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh | bash -
           
-          # FIX: Shortcut (symlink) bypass karke directly root folder mein header patch karna
-          echo "Patching pgtable.h for 4.19 compatibility..."
+          # Patch 1: Header fix
           grep -rl 'linux/pgtable.h' KernelSU-Next/ | xargs sed -i 's/linux\/pgtable.h/asm\/pgtable.h/g' || true
           
-      - name: Configure Kernel (POCO M4 5G "LIGHT" EXACT)
+          # Patch 2: SURGERY - 4.19 compatibility for file_wrapper.c
+          # Hum un functions ko comment out kar rahe hain jo 4.19 mein nahi hain
+          sed -i 's/return orig->f_op->iopoll(kiocb, spin);/\/\/return orig->f_op->iopoll(kiocb, spin);/' drivers/kernelsu/infra/file_wrapper.c
+          sed -i 's/p->ops.iopoll = fp->f_op->iopoll ? ksu_wrapper_iopoll : NULL;/p->ops.iopoll = NULL;/' drivers/kernelsu/infra/file_wrapper.c
+          
+      - name: Configure Kernel
         run: |
           cd kernel-source
-          
           make O=out ARCH=arm64 light_defconfig
-          
           echo "CONFIG_KPROBES=y" >> out/.config
           echo "CONFIG_HAVE_KPROBES=y" >> out/.config
           echo "CONFIG_KPROBE_EVENTS=y" >> out/.config
           echo "CONFIG_OVERLAY_FS=y" >> out/.config
-          
+          # LTO/CFI Disable
           sed -i 's/CONFIG_LTO=y/# CONFIG_LTO is not set/g' out/.config
           sed -i 's/CONFIG_LTO_CLANG=y/# CONFIG_LTO_CLANG is not set/g' out/.config
           sed -i 's/CONFIG_CFI_CLANG=y/# CONFIG_CFI_CLANG is not set/g' out/.config
           echo "CONFIG_LTO_NONE=y" >> out/.config
-          
           make O=out ARCH=arm64 olddefconfig
           
       - name: Compile Kernel
@@ -59,37 +49,16 @@ jobs:
           cd kernel-source
           set -e
           set -o pipefail
-          
           make -j$(nproc --all) O=out ARCH=arm64 \
-            CC=clang-14 \
-            LD=ld.lld-14 \
-            AR=llvm-ar-14 \
-            NM=llvm-nm-14 \
-            OBJCOPY=llvm-objcopy-14 \
-            OBJDUMP=llvm-objdump-14 \
-            STRIP=llvm-strip-14 \
-            CROSS_COMPILE=aarch64-linux-gnu- \
-            CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            HOSTCFLAGS="-fcommon -w" \
-            HOSTLDFLAGS="-z muldefs" \
-            KCFLAGS="-w" 2>&1 | tee ../build.log
+            CC=clang-14 LD=ld.lld-14 AR=llvm-ar-14 NM=llvm-nm-14 OBJCOPY=llvm-objcopy-14 OBJDUMP=llvm-objdump-14 STRIP=llvm-strip-14 \
+            CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            HOSTCFLAGS="-fcommon -w" HOSTLDFLAGS="-z muldefs" KCFLAGS="-w" 2>&1 | tee ../build.log
           
-      - name: Upload Error Log
+      - name: Upload Logs/Images
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-log
-          path: build.log
-          
-      - name: Extract Raw Kernel Images
-        if: success()
-        run: |
-          mkdir -p raw-images
-          find kernel-source/out/arch/arm64/boot -name "Image*" -exec cp {} raw-images/ \;
-          
-      - name: Upload Raw Image (.img files)
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Poco-M4-Raw-Images
-          path: raw-images/*
+          name: Build-Result
+          path: |
+            build.log
+            kernel-source/out/arch/arm64/boot/Image*

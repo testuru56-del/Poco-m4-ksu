@@ -62,13 +62,9 @@ jobs:
           # 4. pkg_observer.c Fix
           find KernelSU-Next drivers/kernelsu -type f -name "*.c" -exec sed -i 's/handle_inode_event/handle_event/g' {} + || true
           
-          # 5. THE ULTIMATE SELINUX PATCH (Fixes rules.c undeclared identifier 'selinux_state')
-          RULES_C=$(find KernelSU-Next drivers/kernelsu -type f -name "rules.c" | head -n 1)
-          if [ -n "$RULES_C" ]; then
-            echo "Applying 4.19 SELinux structural bypass to $RULES_C..."
-            sed -i 's/selinux_state\.policy/selinux_policy/g' $RULES_C || true
-            sed -i 's/&selinux_state/NULL/g' $RULES_C || true
-          fi
+          # 5. THE ULTIMATE SELINUX FAKE-BOX TRICK
+          echo 'struct selinux_state { int disabled; int enforcing; int checkreqprot; int initialized; void *avc; void *ss; void *policy; }; static struct selinux_state selinux_state;' > drivers/kernelsu/ksu_dummy_selinux.h
+          find KernelSU-Next drivers/kernelsu -type f -name "rules.c" -exec sed -i '1i #include "../../ksu_dummy_selinux.h"' {} + || true
           
       - name: Configure Kernel (POCO M4 5G LIGHT)
         run: |
@@ -95,7 +91,7 @@ jobs:
           set -o pipefail
           
           make -j$(nproc --all) O=out ARCH=arm64 \
-            CC=clang-14 lld-14 lld-14 AR=llvm-ar-14 NM=llvm-nm-14 OBJCOPY=llvm-objcopy-14 OBJDUMP=llvm-objdump-14 STRIP=llvm-strip-14 \
+            CC=clang-14 LD=ld.lld-14 AR=llvm-ar-14 NM=llvm-nm-14 OBJCOPY=llvm-objcopy-14 OBJDUMP=llvm-objdump-14 STRIP=llvm-strip-14 \
             CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
             HOSTCFLAGS="-fcommon -w" HOSTLDFLAGS="-z muldefs" KCFLAGS="-w" 2>&1 | tee ../build.log
           
@@ -111,3 +107,4 @@ jobs:
         with:
           name: Poco-M4-Fastboot-Image
           path: raw-images/*
+

@@ -24,31 +24,32 @@ jobs:
           sed -i '/mihw/d' drivers/Kconfig || true
           find arch/arm64/configs -type f -exec sed -i 's/CONFIG_MIHW=y/# CONFIG_MIHW is not set/g' {} +
           
-      - name: Deep Patch DTC & Headers (Ubuntu Fix)
+      - name: Deep Patch DTC & Headers
         run: |
           cd kernel-source
           find scripts/dtc -type f -name "*.c*" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
           find scripts/dtc -type f -name "*.l" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
           
-      - name: Inject OFFICIAL KernelSU (Perfect for 4.19)
+      - name: Inject OFFICIAL KernelSU & Fix 4.19 Macro
         run: |
           cd kernel-source
-          # Official KSU automatically 4.19 ko support karta hai bina errors ke
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
+          
+          # THE MAGIC FIX: Deleting the unsupported GKI macro for 4.19 kernel
+          echo "Fixing MODULE_IMPORT_NS for 4.19..."
+          find KernelSU drivers/kernelsu -type f -name "*.c" -exec sed -i '/MODULE_IMPORT_NS/d' {} + || true
           
       - name: Configure Kernel (POCO M4 5G LIGHT)
         run: |
           cd kernel-source
           make O=out ARCH=arm64 light_defconfig
           
-          # Standard Root Configs
           echo "CONFIG_KPROBES=y" >> out/.config
           echo "CONFIG_HAVE_KPROBES=y" >> out/.config
           echo "CONFIG_KPROBE_EVENTS=y" >> out/.config
           echo "CONFIG_OVERLAY_FS=y" >> out/.config
           echo "# CONFIG_MIHW is not set" >> out/.config
           
-          # Memory Protection disable (Compiler crash prevention)
           sed -i 's/CONFIG_LTO=y/# CONFIG_LTO is not set/g' out/.config
           sed -i 's/CONFIG_LTO_CLANG=y/# CONFIG_LTO_CLANG is not set/g' out/.config
           sed -i 's/CONFIG_CFI_CLANG=y/# CONFIG_CFI_CLANG is not set/g' out/.config

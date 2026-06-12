@@ -1,4 +1,4 @@
-name: Fast Repack KSU Boot Image (Python Method)
+name: Fast Repack KSU Boot Image (Official OEM Method)
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ jobs:
       - name: Setup Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-pip
+          sudo apt-get install -y wget unzip python3-pip
           pip3 install gdown
 
       - name: Download Files
@@ -24,28 +24,31 @@ jobs:
           echo "Downloading KSU Engine (25MB)..."
           gdown "1B4vYn0ZuPesPb40Q4ubs42_qrhxYyjuT" -O kernel
 
-      - name: Python Repack Magic
+      - name: Get Official MagiskBoot Tool
         run: |
           cd repack
           
-          # Downloading a lightweight, reliable Python repacker
-          curl -sL https://raw.githubusercontent.com/cfig/Android_boot_image_editor/master/unpack.py -o unpack.py
-          curl -sL https://raw.githubusercontent.com/cfig/Android_boot_image_editor/master/pack.py -o pack.py
+          echo "Downloading Official Magisk v27.0 APK..."
+          wget -qO magisk.apk "https://github.com/topjohnwu/Magisk/releases/download/v27.0/Magisk-v27.0.apk"
+          
+          echo "Extracting tool directly from APK..."
+          unzip -j magisk.apk "lib/x86_64/libmagiskboot.so" -d .
+          mv libmagiskboot.so magiskboot
+          chmod +x magiskboot
+
+      - name: Repack Image
+        run: |
+          cd repack
           
           echo "Unpacking Stock Boot..."
-          python3 unpack.py stock_boot.img
+          ./magiskboot unpack stock_boot.img
           
-          echo "Injecting KSU Engine..."
-          cp kernel boot/kernel
-          
-          echo "Repacking Boot Image..."
-          python3 pack.py
-          
-          # Renaming output for clarity
-          mv boot.img fastboot_ksu_boot.img
+          echo "Repacking with new KSU Engine..."
+          ./magiskboot repack stock_boot.img fastboot_ksu_boot.img
 
       - name: Upload
         uses: actions/upload-artifact@v4
         with:
           name: Poco-M4-Fastboot-KSU-Image
           path: repack/fastboot_ksu_boot.img
+

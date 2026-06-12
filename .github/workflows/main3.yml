@@ -1,4 +1,4 @@
-name: Fast Repack KSU Boot Image (Fixed)
+name: Fast Repack KSU Boot Image (Python Method)
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ jobs:
       - name: Setup Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y python3-pip wget
+          sudo apt-get install -y python3-pip
           pip3 install gdown
 
       - name: Download Files
@@ -18,21 +18,31 @@ jobs:
           mkdir repack
           cd repack
           
-          # ID for Stock Boot (Isme koi underscore nahi hai, ye safe hai)
+          echo "Downloading Stock Boot (64MB)..."
           gdown "1FWNB6uFzPOsXR3o5APSP3k-Wg2hRYMdw" -O stock_boot.img
           
-          # KSU Engine ID -> DHYAN RAHE: 42 aur qrh ke beech UNDERSCORE (_) hona chahiye!
+          echo "Downloading KSU Engine (25MB)..."
           gdown "1B4vYn0ZuPesPb40Q4ubs42_qrhxYyjuT" -O kernel
-          
-          # MagiskBoot Link -> DHYAN RAHE: x86 aur 64 ke beech UNDERSCORE (_) hona chahiye!
-          wget -qO magiskboot "https://github.com/vvb2060/magiskboot_build/releases/download/26.1/magiskboot_x86_64"
-          chmod +x magiskboot
 
-      - name: Repack Image
+      - name: Python Repack Magic
         run: |
           cd repack
-          ./magiskboot unpack stock_boot.img
-          ./magiskboot repack stock_boot.img fastboot_ksu_boot.img
+          
+          # Downloading a lightweight, reliable Python repacker
+          curl -sL https://raw.githubusercontent.com/cfig/Android_boot_image_editor/master/unpack.py -o unpack.py
+          curl -sL https://raw.githubusercontent.com/cfig/Android_boot_image_editor/master/pack.py -o pack.py
+          
+          echo "Unpacking Stock Boot..."
+          python3 unpack.py stock_boot.img
+          
+          echo "Injecting KSU Engine..."
+          cp kernel boot/kernel
+          
+          echo "Repacking Boot Image..."
+          python3 pack.py
+          
+          # Renaming output for clarity
+          mv boot.img fastboot_ksu_boot.img
 
       - name: Upload
         uses: actions/upload-artifact@v4

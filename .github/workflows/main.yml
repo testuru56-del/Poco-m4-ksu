@@ -19,8 +19,7 @@ jobs:
       - name: Fix Xiaomi Missing Vendor Modules (mihw)
         run: |
           cd kernel-source
-          # Xiaomi ka bhula hua directory bypass karna
-          sed -i '/mihw/d' drivers/Makefile
+          sed -i '/mihw/d' drivers/Makefile || true
           
       - name: Deep Patch DTC & Disable Protections
         run: |
@@ -33,13 +32,25 @@ jobs:
           cd kernel-source
           curl -ls https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh | bash -
           
-      - name: Configure Kernel (STRICTLY defconfig)
+      - name: Auto-Detect True Defconfig & Configure
         run: |
           cd kernel-source
           
-          # Tumhara strict requirement
-          make O=out ARCH=arm64 defconfig
+          echo "🔍 Searching for the real Poco M4 5G defconfig..."
+          TRUE_DEFCONFIG=$(find arch/arm64/configs -type f -name "*defconfig" | grep -iE "light|mt6833" | grep -v "debug" | head -n 1 | sed 's|arch/arm64/configs/||')
           
+          if [ -z "$TRUE_DEFCONFIG" ]; then
+             echo "⚠️ Couldn't find specific config. Falling back to defconfig..."
+             TRUE_DEFCONFIG="defconfig"
+          fi
+          
+          echo "========================================="
+          echo "✅ USING REAL DEVICE CONFIG: $TRUE_DEFCONFIG"
+          echo "========================================="
+          
+          make O=out ARCH=arm64 $TRUE_DEFCONFIG
+          
+          # Injecting KernelSU and disabling crashing Memory Protections
           echo "CONFIG_KPROBES=y" >> out/.config
           echo "CONFIG_HAVE_KPROBES=y" >> out/.config
           echo "CONFIG_KPROBE_EVENTS=y" >> out/.config
@@ -91,3 +102,4 @@ jobs:
         with:
           name: Poco-M4-Raw-Images
           path: raw-images/*
+

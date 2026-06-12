@@ -1,4 +1,4 @@
-name: Fast Repack KSU Boot Image (Fixed Final)
+name: Fast Repack KSU Boot Image (Fixed)
 
 on:
   workflow_dispatch:
@@ -10,22 +10,22 @@ jobs:
       - name: Setup Environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y wget
+          sudo apt-get install -y python3-pip wget
+          pip3 install gdown
 
       - name: Download Files
         run: |
           mkdir repack
           cd repack
           
-          echo "Downloading Stock Boot..."
-          wget -qO stock_boot.img "https://drive.google.com/uc?export=download&id=1FWNB6uFzPOsXR3o5APSP3k-Wg2hRYMdw"
+          # ID for Stock Boot (Isme koi underscore nahi hai, ye safe hai)
+          gdown "1FWNB6uFzPOsXR3o5APSP3k-Wg2hRYMdw" -O stock_boot.img
           
-          echo "Downloading KSU Image..."
-          wget -qO kernel "https://drive.google.com/uc?export=download&id=1B4vYn0ZuPesPb40Q4ubs42_qrhxYyjuT"
+          # KSU Engine ID -> DHYAN RAHE: 42 aur qrh ke beech UNDERSCORE (_) hona chahiye!
+          gdown "1B4vYn0ZuPesPb40Q4ubs42_qrhxYyjuT" -O kernel
           
-          echo "Downloading MagiskBoot..."
-          # Link bina space ke
-          wget -qO magiskboot "https://raw.githubusercontent.com/topjohnwu/Magisk/master/native/build/bin/x86_64/magiskboot"
+          # MagiskBoot Link -> DHYAN RAHE: x86 aur 64 ke beech UNDERSCORE (_) hona chahiye!
+          wget -qO magiskboot "https://github.com/vvb2060/magiskboot_build/releases/download/26.1/magiskboot_x86_64"
           chmod +x magiskboot
 
       - name: Repack Image
@@ -39,4 +39,3 @@ jobs:
         with:
           name: Poco-M4-Fastboot-KSU-Image
           path: repack/fastboot_ksu_boot.img
-

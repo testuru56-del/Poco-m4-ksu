@@ -1,4 +1,4 @@
-name: Build KSU Next (Only Image)
+name: Build KSU Next (Error Detector Mode)
 
 on:
   workflow_dispatch:
@@ -30,11 +30,9 @@ jobs:
           find scripts/dtc -type f -name "*.c*" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
           find scripts/dtc -type f -name "*.l" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
           
-      - name: Inject KernelSU-Next & Apply 4.19 Patches
+      - name: Inject KernelSU-Next & Apply Known Patches
         run: |
           cd kernel-source
-          
-          # Official ki jagah wapas KernelSU-Next par shift
           curl -ls https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh | bash -
           
           echo "Patching missing 4.19 headers..."
@@ -43,13 +41,12 @@ jobs:
           find KernelSU-Next drivers/kernelsu -type f -name "*.c" -exec sed -i 's/<uapi\/linux\/mount.h>/<linux\/mount.h>/g' {} + || true
           find KernelSU-Next drivers/kernelsu -type f -name "*.h" -exec sed -i 's/<uapi\/linux\/mount.h>/<linux\/mount.h>/g' {} + || true
           
-          echo "Applying file_wrapper.c Surgery..."
+          echo "Applying file_wrapper.c Aggressive Surgery..."
           FILE_WRAPPER=$(find KernelSU-Next drivers/kernelsu -type f -name "file_wrapper.c" | head -n 1)
           if [ -n "$FILE_WRAPPER" ]; then
-            sed -i '/ksu_wrapper_iopoll(/,/^}/d' $FILE_WRAPPER || true
-            sed -i '/\.iopoll/d' $FILE_WRAPPER || true
-            sed -i '/ksu_wrapper_remap_file_range(/,/^}/d' $FILE_WRAPPER || true
-            sed -i '/\.remap_file_range/d' $FILE_WRAPPER || true
+            # Nayi trick: Jis bhi line mein iopoll ya remap_file_range hoga, wo line turant delete ho jayegi
+            sed -i '/iopoll/d' $FILE_WRAPPER || true
+            sed -i '/remap_file_range/d' $FILE_WRAPPER || true
           fi
           
       - name: Configure Kernel (POCO M4 5G LIGHT)
@@ -70,35 +67,25 @@ jobs:
           
           make O=out ARCH=arm64 olddefconfig
           
-      - name: Compile Kernel (Strict Mode)
+      - name: Compile Kernel (ERROR DETECTOR MODE)
         run: |
           cd kernel-source
           
-          # Tumhara strict error checking wapas chalu (-k removed)
-          set -e
+          # strict error crash hata diya gaya hai
           set -o pipefail
           
-          make -j$(nproc --all) O=out ARCH=arm64 \
+          # '-k' flag wapas add kar diya jisse process rukega nahi
+          make -k -j$(nproc --all) O=out ARCH=arm64 \
             CC=clang-14 LD=ld.lld-14 AR=llvm-ar-14 NM=llvm-nm-14 OBJCOPY=llvm-objcopy-14 OBJDUMP=llvm-objdump-14 STRIP=llvm-strip-14 \
             CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            HOSTCFLAGS="-fcommon -w" HOSTLDFLAGS="-z muldefs" KCFLAGS="-w" 2>&1 | tee ../build.log
+            HOSTCFLAGS="-fcommon -w" HOSTLDFLAGS="-z muldefs" KCFLAGS="-w" 2>&1 | tee ../build.log || true
           
-      - name: Upload Logs
+      - name: Upload Logs & Images
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: build-log
-          path: build.log
+          name: Build-Result
+          path: |
+            build.log
+            kernel-source/out/arch/arm64/boot/Image*
 
-      - name: Extract Raw Kernel Images
-        if: success()
-        run: |
-          mkdir -p raw-images
-          find kernel-source/out/arch/arm64/boot -name "Image*" -exec cp {} raw-images/ \;
-          
-      - name: Upload Raw Image (.img files)
-        if: success()
-        uses: actions/upload-artifact@v4
-        with:
-          name: Poco-M4-Raw-Images
-          path: raw-images/*

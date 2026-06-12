@@ -1,4 +1,4 @@
-name: Build KSU Next (Final Image Fastboot)
+name: Build KSU (Non-GKI Official) for Poco M4 5G
 
 on:
   workflow_dispatch:
@@ -24,59 +24,38 @@ jobs:
           sed -i '/mihw/d' drivers/Kconfig || true
           find arch/arm64/configs -type f -exec sed -i 's/CONFIG_MIHW=y/# CONFIG_MIHW is not set/g' {} +
           
-      - name: Deep Patch DTC & Headers
+      - name: Deep Patch DTC Error
         run: |
           cd kernel-source
           find scripts/dtc -type f -name "*.c*" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
           find scripts/dtc -type f -name "*.l" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
           
-      - name: Inject KernelSU-Next & Apply Ultimate 4.19 Patches
+      - name: Inject KernelSU (v0.9.5 STABLE)
         run: |
           cd kernel-source
-          curl -ls https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh | bash -
           
-          echo "Applying legacy 4.x fixes to KernelSU-Next..."
+          # THE MASTERSTROKE: Main branch ki jagah v0.9.5 Stable tag use karna
+          # Isse 4.19 kernel par aane wale saare naye errors 1 jhatke mein khatam ho jayenge
+          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s v0.9.5
           
-          # 1. Header Patches
-          find KernelSU-Next drivers/kernelsu -type f -name "*.c" -exec sed -i 's/<linux\/pgtable.h>/<asm\/pgtable.h>/g' {} + || true
-          find KernelSU-Next drivers/kernelsu -type f -name "*.h" -exec sed -i 's/<linux\/pgtable.h>/<asm\/pgtable.h>/g' {} + || true
-          find KernelSU-Next drivers/kernelsu -type f -name "*.c" -exec sed -i 's/<uapi\/linux\/mount.h>/<linux\/mount.h>/g' {} + || true
-          find KernelSU-Next drivers/kernelsu -type f -name "*.h" -exec sed -i 's/<uapi\/linux\/mount.h>/<linux\/mount.h>/g' {} + || true
-          find KernelSU-Next drivers/kernelsu -type f -name "*.c" -exec sed -i '/MODULE_IMPORT_NS/d' {} + || true
-          
-          # 2. file_wrapper.c Fix
-          FILE_WRAPPER=$(find KernelSU-Next drivers/kernelsu -type f -name "file_wrapper.c" | head -n 1)
-          if [ -n "$FILE_WRAPPER" ]; then
-            sed -i '/\.iopoll/ s/^/\/\//' $FILE_WRAPPER || true
-            sed -i '/\.remap_file_range/ s/^/\/\//' $FILE_WRAPPER || true
-            sed -i '/f_op->iopoll/ s/^/\/\//' $FILE_WRAPPER || true
-            sed -i '/f_op->remap_file_range/ s/^/\/\//' $FILE_WRAPPER || true
-          fi
-          
-          # 3. seccomp_cache.c Fix
-          SECCOMP=$(find KernelSU-Next drivers/kernelsu -type f -name "seccomp_cache.c" | head -n 1)
-          if [ -n "$SECCOMP" ]; then
-            sed -i '1i #ifndef SECCOMP_ARCH_NATIVE_NR\n#define SECCOMP_ARCH_NATIVE_NR 1000\n#endif\n' $SECCOMP || true
-          fi
-          
-          # 4. pkg_observer.c Fix
-          find KernelSU-Next drivers/kernelsu -type f -name "*.c" -exec sed -i 's/handle_inode_event/handle_event/g' {} + || true
-          
-          # 5. THE ULTIMATE SELINUX FAKE-BOX TRICK
-          echo 'struct selinux_state { int disabled; int enforcing; int checkreqprot; int initialized; void *avc; void *ss; void *policy; }; static struct selinux_state selinux_state;' > drivers/kernelsu/ksu_dummy_selinux.h
-          find KernelSU-Next drivers/kernelsu -type f -name "rules.c" -exec sed -i '1i #include "../../ksu_dummy_selinux.h"' {} + || true
-          
-      - name: Configure Kernel (POCO M4 5G LIGHT)
+      - name: Configure Kernel (Non-GKI Guide + Root Hide)
         run: |
           cd kernel-source
           make O=out ARCH=arm64 light_defconfig
           
+          # 1. Non-GKI Guide Requirement: ENABLE KPROBES
           echo "CONFIG_KPROBES=y" >> out/.config
           echo "CONFIG_HAVE_KPROBES=y" >> out/.config
           echo "CONFIG_KPROBE_EVENTS=y" >> out/.config
           echo "CONFIG_OVERLAY_FS=y" >> out/.config
-          echo "# CONFIG_MIHW is not set" >> out/.config
           
+          # 2. Both Root Hide Things (SUCompat + Magic Mount)
+          echo "CONFIG_KSU=y" >> out/.config
+          echo "CONFIG_KSU_SUCOMPAT=y" >> out/.config
+          echo "CONFIG_KSU_MAGIC_MOUNT=y" >> out/.config
+          
+          # 3. Security (Disable MIHW & Linker Protections)
+          echo "# CONFIG_MIHW is not set" >> out/.config
           sed -i 's/CONFIG_LTO=y/# CONFIG_LTO is not set/g' out/.config
           sed -i 's/CONFIG_LTO_CLANG=y/# CONFIG_LTO_CLANG is not set/g' out/.config
           sed -i 's/CONFIG_CFI_CLANG=y/# CONFIG_CFI_CLANG is not set/g' out/.config
@@ -84,12 +63,13 @@ jobs:
           
           make O=out ARCH=arm64 olddefconfig
           
-      - name: Compile Kernel (Strict Clean Build)
+      - name: Compile Kernel
         run: |
           cd kernel-source
           set -e
           set -o pipefail
           
+          # Smooth compilation without errors
           make -j$(nproc --all) O=out ARCH=arm64 \
             CC=clang-14 LD=ld.lld-14 AR=llvm-ar-14 NM=llvm-nm-14 OBJCOPY=llvm-objcopy-14 OBJDUMP=llvm-objdump-14 STRIP=llvm-strip-14 \
             CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
@@ -101,7 +81,7 @@ jobs:
           mkdir -p raw-images
           find kernel-source/out/arch/arm64/boot -name "Image*" -exec cp {} raw-images/ \;
           
-      - name: Upload Raw Image (.img format for Fastboot)
+      - name: Upload Fastboot Image
         if: success()
         uses: actions/upload-artifact@v4
         with:

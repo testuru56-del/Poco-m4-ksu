@@ -1,110 +1,91 @@
-name: Build KernelSU Next - POCO M4 5G
-on: workflow_dispatch:
-jobs: build: runs-on: ubuntu-22.04
-steps:
-  - name: Install Dependencies
-    run: |
-      sudo apt update
-      sudo apt install -y \
-        bc bison flex build-essential \
-        curl git zip cpio rsync \
-        libssl-dev libelf-dev \
-        gcc-aarch64-linux-gnu \
-        gcc-arm-linux-gnueabi
+name: Build KSU (Official) for Poco M4 5G
 
-  - name: Clone Kernel Source
-    run: |
-      git clone --depth=1 \
-        -b light-u-oss \
-        https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git \
-        kernel
+on:
+  workflow_dispatch:
 
-  - name: Clone Proton Clang
-    run: |
-      git clone --depth=1 \
-        https://github.com/kdrag0n/proton-clang.git \
-        clang
-
-  - name: Remove MIHW
-    run: |
-      cd kernel
-
-      rm -rf drivers/mihw || true
-
-      sed -i '/mihw/d' drivers/Makefile || true
-      sed -i '/mihw/d' drivers/Kconfig || true
-
-      find arch/arm64/configs -type f \
-        -exec sed -i \
-        's/CONFIG_MIHW=y/# CONFIG_MIHW is not set/g' {} +
-
-  - name: Integrate KernelSU Next
-    run: |
-      cd kernel
-
-      curl -LSs \
-      https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/main/kernel/setup.sh \
-      | bash -
-
-  - name: Fix 4.19 Mount Header
-    run: |
-      cd kernel
-
-      FILE="drivers/kernelsu/infra/su_mount_ns.c"
-
-      if [ -f "$FILE" ]; then
-        sed -i \
-        's@<uapi/linux/mount.h>@<linux/mount.h>@g' \
-        "$FILE" || true
-      fi
-
-  - name: Configure Kernel
-    run: |
-      cd kernel
-
-      mkdir -p out
-
-      make O=out ARCH=arm64 light_defconfig
-
-      echo "CONFIG_KPROBES=y" >> out/.config
-      echo "CONFIG_HAVE_KPROBES=y" >> out/.config
-      echo "CONFIG_KPROBE_EVENTS=y" >> out/.config
-      echo "CONFIG_OVERLAY_FS=y" >> out/.config
-
-      make O=out ARCH=arm64 olddefconfig
-
-  - name: Build Kernel
-    run: |
-      cd kernel
-
-      export ARCH=arm64
-      export SUBARCH=arm64
-      export PATH=$GITHUB_WORKSPACE/clang/bin:$PATH
-
-      make -j$(nproc) \
-        O=out \
-        ARCH=arm64 \
-        CC=clang \
-        LD=ld.lld \
-        AR=llvm-ar \
-        NM=llvm-nm \
-        OBJCOPY=llvm-objcopy \
-        OBJDUMP=llvm-objdump \
-        STRIP=llvm-strip \
-        CROSS_COMPILE=aarch64-linux-gnu- \
-        CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-
-  - name: Upload Kernel
-    uses: actions/upload-artifact@v4
-    with:
-      name: POCO-M4-5G-KernelSU-Next
-      path: |
-        kernel/out/arch/arm64/boot/Image*
-        kernel/out/arch/arm64/boot/**/*.dtb
-
-  - name: Upload Config
-    if: always()
-    uses: actions/upload-artifact@v4
-    with:
-      name: Kernel-Config
-      path: kernel/out/.config
+jobs:
+  build-kernel:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Prepare build environment
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential ccache curl flex git gnupg gperf liblz4-tool libncurses-dev libssl-dev libxml2 libxml2-utils lzop rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi libyaml-dev clang-14 lld-14 llvm-14
+          
+      - name: Clone Xiaomi Kernel Source
+        run: |
+          git clone --depth=1 -b light-u-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource kernel-source
+          
+      - name: Fix Xiaomi Missing Vendor Modules (MIHW NUKE)
+        run: |
+          cd kernel-source
+          rm -rf drivers/mihw
+          sed -i '/mihw/d' drivers/Makefile || true
+          sed -i '/mihw/d' drivers/Kconfig || true
+          find arch/arm64/configs -type f -exec sed -i 's/CONFIG_MIHW=y/# CONFIG_MIHW is not set/g' {} +
+          
+      - name: Deep Patch DTC & Headers
+        run: |
+          cd kernel-source
+          find scripts/dtc -type f -name "*.c*" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
+          find scripts/dtc -type f -name "*.l" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
+          
+      - name: Inject OFFICIAL KernelSU & APPLY ALL PATCHES
+        run: |
+          cd kernel-source
+          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
+          
+          # Patch 1: Macro & Header Fixes (Including the new mount.h fix)
+          find KernelSU drivers/kernelsu -type f -name "*.c" -exec sed -i '/MODULE_IMPORT_NS/d' {} + || true
+          find KernelSU drivers/kernelsu -type f -name "*.c" -exec sed -i 's/<linux\/pgtable.h>/<asm\/pgtable.h>/g' {} + || true
+          find KernelSU drivers/kernelsu -type f -name "*.h" -exec sed -i 's/<linux\/pgtable.h>/<asm\/pgtable.h>/g' {} + || true
+          find KernelSU drivers/kernelsu -type f -name "*.c" -exec sed -i 's/<uapi\/linux\/mount.h>/<linux\/mount.h>/g' {} + || true
+          find KernelSU drivers/kernelsu -type f -name "*.h" -exec sed -i 's/<uapi\/linux\/mount.h>/<linux\/mount.h>/g' {} + || true
+          
+          # Patch 2: FILE_WRAPPER.C SURGERY
+          FILE_WRAPPER="drivers/kernelsu/infra/file_wrapper.c"
+          sed -i '/ksu_wrapper_iopoll(/,/^}/d' $FILE_WRAPPER || true
+          sed -i '/\.iopoll/d' $FILE_WRAPPER || true
+          sed -i '/ksu_wrapper_remap_file_range(/,/^}/d' $FILE_WRAPPER || true
+          sed -i '/\.remap_file_range/d' $FILE_WRAPPER || true
+          
+          # Patch 3: SECCOMP_CACHE FIX
+          echo "Patching seccomp_cache.c for SECCOMP_ARCH_NATIVE_NR..."
+          sed -i '1i #ifndef SECCOMP_ARCH_NATIVE_NR\n#define SECCOMP_ARCH_NATIVE_NR 1000\n#endif\n' drivers/kernelsu/infra/seccomp_cache.c || true
+          
+      - name: Configure Kernel (POCO M4 5G LIGHT)
+        run: |
+          cd kernel-source
+          make O=out ARCH=arm64 light_defconfig
+          
+          echo "CONFIG_KPROBES=y" >> out/.config
+          echo "CONFIG_HAVE_KPROBES=y" >> out/.config
+          echo "CONFIG_KPROBE_EVENTS=y" >> out/.config
+          echo "CONFIG_OVERLAY_FS=y" >> out/.config
+          echo "# CONFIG_MIHW is not set" >> out/.config
+          
+          sed -i 's/CONFIG_LTO=y/# CONFIG_LTO is not set/g' out/.config
+          sed -i 's/CONFIG_LTO_CLANG=y/# CONFIG_LTO_CLANG is not set/g' out/.config
+          sed -i 's/CONFIG_CFI_CLANG=y/# CONFIG_CFI_CLANG is not set/g' out/.config
+          echo "CONFIG_LTO_NONE=y" >> out/.config
+          
+          make O=out ARCH=arm64 olddefconfig
+          
+      - name: Compile Kernel
+        run: |
+          cd kernel-source
+          set -e
+          set -o pipefail
+          make -j$(nproc --all) O=out ARCH=arm64 \
+            CC=clang-14 LD=ld.lld-14 AR=llvm-ar-14 NM=llvm-nm-14 OBJCOPY=llvm-objcopy-14 OBJDUMP=llvm-objdump-14 STRIP=llvm-strip-14 \
+            CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
+            HOSTCFLAGS="-fcommon -w" HOSTLDFLAGS="-z muldefs" KCFLAGS="-w" 2>&1 | tee ../build.log
+          
+      - name: Upload Logs & Images
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Build-Result
+          path: |
+            build.log
+            kernel-source/out/arch/arm64/boot/Image*

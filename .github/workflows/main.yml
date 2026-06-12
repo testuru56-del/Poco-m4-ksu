@@ -27,20 +27,19 @@ jobs:
           find scripts/dtc -type f -name "*.c*" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
           find scripts/dtc -type f -name "*.l" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
           
-      - name: Inject KernelSU Next
+      - name: Inject KernelSU Next & Fix 4.19 Headers
         run: |
           cd kernel-source
           curl -ls https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh | bash -
           
-          # 4.19 Kernel compatibility patch for KernelSU
-          find drivers/kernelsu -type f -name "*.c" -exec sed -i 's/<linux\/pgtable.h>/<asm\/pgtable.h>/g' {} + || true
-          find drivers/kernelsu -type f -name "*.h" -exec sed -i 's/<linux\/pgtable.h>/<asm\/pgtable.h>/g' {} + || true
+          # FIX: Shortcut (symlink) bypass karke directly root folder mein header patch karna
+          echo "Patching pgtable.h for 4.19 compatibility..."
+          grep -rl 'linux/pgtable.h' KernelSU-Next/ | xargs sed -i 's/linux\/pgtable.h/asm\/pgtable.h/g' || true
           
       - name: Configure Kernel (POCO M4 5G "LIGHT" EXACT)
         run: |
           cd kernel-source
           
-          # ASLI Device Config: light_defconfig
           make O=out ARCH=arm64 light_defconfig
           
           echo "CONFIG_KPROBES=y" >> out/.config

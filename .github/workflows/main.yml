@@ -10,31 +10,38 @@ jobs:
       - name: Prepare build environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf liblz4-tool libncurses-dev libssl-dev libxml2 libxml2-utils lzop rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 clang-12 lld-12 gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+          # FIX 1: Removed conflicting multilib packages, keeping stable native ARM cross-compilers
+          sudo apt-get install -y bc bison build-essential ccache curl flex git gnupg gperf liblz4-tool libncurses-dev libssl-dev libxml2 libxml2-utils lzop rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
           
       - name: Clone Xiaomi Kernel Source
         run: |
           git clone --depth=1 -b light-u-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource kernel-source
           
-      - name: Inject KernelSU Next
+      - name: Inject KernelSU Next & Fix Configs
         run: |
           cd kernel-source
           curl -ls https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh | bash -
           
-      - name: Compile Kernel
+          # FIX 2: KernelSU requires these configs to actually grant root after flashing
+          echo "CONFIG_KPROBES=y" >> arch/arm64/configs/defconfig
+          echo "CONFIG_HAVE_KPROBES=y" >> arch/arm64/configs/defconfig
+          echo "CONFIG_KPROBE_EVENTS=y" >> arch/arm64/configs/defconfig
+          echo "CONFIG_OVERLAY_FS=y" >> arch/arm64/configs/defconfig
+          
+          # FIX 3: Force bypass all strict warnings to prevent build drops
+          sed -i 's/-Werror//g' Makefile
+          sed -i 's/-Werror//g' scripts/Makefile.build
+          
+      - name: Compile Kernel (Pure GCC)
         run: |
           cd kernel-source
           export ARCH=arm64
           export SUBARCH=arm64
           
-          # Minor warnings aur strict checks ko bypass karne ki tricks
-          sed -i 's/-Werror//g' Makefile
-          sed -i 's/-Werror//g' scripts/Makefile.build
+          # FIX 4: Using pure native GCC instead of Clang prevents random C-code macro errors
+          make O=out ARCH=arm64 defconfig
           
-          # Stable Clang-12 ka use
-          make O=out ARCH=arm64 CC=clang-12 defconfig
-          
-          make -j$(nproc --all) O=out ARCH=arm64 CC=clang-12 LD=ld.lld-12 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          make -j$(nproc --all) O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           
       - name: Setup AnyKernel3 and Package
         run: |
@@ -43,6 +50,7 @@ jobs:
           
           sed -i 's/device.name1=maguro/device.name1=light/g' anykernel.sh
           
+          # FIX 5: Broad search to catch the compiled kernel image no matter the format
           find ../kernel-source/out/arch/arm64/boot -name "Image.gz*" -exec cp {} . \;
           find ../kernel-source/out/arch/arm64/boot -name "Image" -exec cp {} . \;
           

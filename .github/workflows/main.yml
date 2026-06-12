@@ -30,14 +30,17 @@ jobs:
           find scripts/dtc -type f -name "*.c*" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
           find scripts/dtc -type f -name "*.l" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
           
-      - name: Inject OFFICIAL KernelSU & Fix 4.19 Macro
+      - name: Inject OFFICIAL KernelSU & Apply 4.19 Patches
         run: |
           cd kernel-source
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
           
-          # THE MAGIC FIX: Deleting the unsupported GKI macro for 4.19 kernel
-          echo "Fixing MODULE_IMPORT_NS for 4.19..."
+          # 1. Macro Fix (Just in case)
           find KernelSU drivers/kernelsu -type f -name "*.c" -exec sed -i '/MODULE_IMPORT_NS/d' {} + || true
+          
+          # 2. Header Fix (Ye wahi patch hai jo log mein aakhiri error dikha raha tha)
+          find KernelSU drivers/kernelsu -type f -name "*.c" -exec sed -i 's/<linux\/pgtable.h>/<asm\/pgtable.h>/g' {} + || true
+          find KernelSU drivers/kernelsu -type f -name "*.h" -exec sed -i 's/<linux\/pgtable.h>/<asm\/pgtable.h>/g' {} + || true
           
       - name: Configure Kernel (POCO M4 5G LIGHT)
         run: |

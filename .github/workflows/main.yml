@@ -1,4 +1,4 @@
-name: Build KSU (Official) for Poco M4 5G
+name: Build KSU Next (Only Image)
 
 on:
   workflow_dispatch:
@@ -30,31 +30,27 @@ jobs:
           find scripts/dtc -type f -name "*.c*" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
           find scripts/dtc -type f -name "*.l" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
           
-      - name: Inject OFFICIAL KernelSU & APPLY ALL PATCHES
+      - name: Inject KernelSU-Next & Apply 4.19 Patches
         run: |
           cd kernel-source
-          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
           
-          # Patch 1: Macro & Header Fixes 
-          find KernelSU drivers/kernelsu -type f -name "*.c" -exec sed -i '/MODULE_IMPORT_NS/d' {} + || true
-          find KernelSU drivers/kernelsu -type f -name "*.c" -exec sed -i 's/<linux\/pgtable.h>/<asm\/pgtable.h>/g' {} + || true
-          find KernelSU drivers/kernelsu -type f -name "*.h" -exec sed -i 's/<linux\/pgtable.h>/<asm\/pgtable.h>/g' {} + || true
-          find KernelSU drivers/kernelsu -type f -name "*.c" -exec sed -i 's/<uapi\/linux\/mount.h>/<linux\/mount.h>/g' {} + || true
-          find KernelSU drivers/kernelsu -type f -name "*.h" -exec sed -i 's/<uapi\/linux\/mount.h>/<linux\/mount.h>/g' {} + || true
+          # Official ki jagah wapas KernelSU-Next par shift
+          curl -ls https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh | bash -
           
-          # Patch 2: FILE_WRAPPER.C SURGERY
-          FILE_WRAPPER="drivers/kernelsu/infra/file_wrapper.c"
-          sed -i '/ksu_wrapper_iopoll(/,/^}/d' $FILE_WRAPPER || true
-          sed -i '/\.iopoll/d' $FILE_WRAPPER || true
-          sed -i '/ksu_wrapper_remap_file_range(/,/^}/d' $FILE_WRAPPER || true
-          sed -i '/\.remap_file_range/d' $FILE_WRAPPER || true
+          echo "Patching missing 4.19 headers..."
+          find KernelSU-Next drivers/kernelsu -type f -name "*.c" -exec sed -i 's/<linux\/pgtable.h>/<asm\/pgtable.h>/g' {} + || true
+          find KernelSU-Next drivers/kernelsu -type f -name "*.h" -exec sed -i 's/<linux\/pgtable.h>/<asm\/pgtable.h>/g' {} + || true
+          find KernelSU-Next drivers/kernelsu -type f -name "*.c" -exec sed -i 's/<uapi\/linux\/mount.h>/<linux\/mount.h>/g' {} + || true
+          find KernelSU-Next drivers/kernelsu -type f -name "*.h" -exec sed -i 's/<uapi\/linux\/mount.h>/<linux\/mount.h>/g' {} + || true
           
-          # Patch 3: SECCOMP_CACHE FIX
-          sed -i '1i #ifndef SECCOMP_ARCH_NATIVE_NR\n#define SECCOMP_ARCH_NATIVE_NR 1000\n#endif\n' drivers/kernelsu/infra/seccomp_cache.c || true
-          
-          # Patch 4: PKG_OBSERVER FIX (Latest error fix)
-          echo "Patching pkg_observer.c for 4.19 fsnotify..."
-          sed -i 's/handle_inode_event/handle_event/g' drivers/kernelsu/manager/pkg_observer.c || true
+          echo "Applying file_wrapper.c Surgery..."
+          FILE_WRAPPER=$(find KernelSU-Next drivers/kernelsu -type f -name "file_wrapper.c" | head -n 1)
+          if [ -n "$FILE_WRAPPER" ]; then
+            sed -i '/ksu_wrapper_iopoll(/,/^}/d' $FILE_WRAPPER || true
+            sed -i '/\.iopoll/d' $FILE_WRAPPER || true
+            sed -i '/ksu_wrapper_remap_file_range(/,/^}/d' $FILE_WRAPPER || true
+            sed -i '/\.remap_file_range/d' $FILE_WRAPPER || true
+          fi
           
       - name: Configure Kernel (POCO M4 5G LIGHT)
         run: |
@@ -74,24 +70,35 @@ jobs:
           
           make O=out ARCH=arm64 olddefconfig
           
-      - name: Compile Kernel (UNSTOPPABLE MODE)
+      - name: Compile Kernel (Strict Mode)
         run: |
           cd kernel-source
           
-          # set -e hata diya taaki error aane par build crash na ho
+          # Tumhara strict error checking wapas chalu (-k removed)
+          set -e
           set -o pipefail
           
-          # 'make -k' ka matlab hai "Keep Going" even if there is an error
-          make -k -j$(nproc --all) O=out ARCH=arm64 \
+          make -j$(nproc --all) O=out ARCH=arm64 \
             CC=clang-14 LD=ld.lld-14 AR=llvm-ar-14 NM=llvm-nm-14 OBJCOPY=llvm-objcopy-14 OBJDUMP=llvm-objdump-14 STRIP=llvm-strip-14 \
             CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            HOSTCFLAGS="-fcommon -w" HOSTLDFLAGS="-z muldefs" KCFLAGS="-w" 2>&1 | tee ../build.log || true
+            HOSTCFLAGS="-fcommon -w" HOSTLDFLAGS="-z muldefs" KCFLAGS="-w" 2>&1 | tee ../build.log
           
-      - name: Upload Logs & Images
+      - name: Upload Logs
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: Build-Result
-          path: |
-            build.log
-            kernel-source/out/arch/arm64/boot/Image*
+          name: build-log
+          path: build.log
+
+      - name: Extract Raw Kernel Images
+        if: success()
+        run: |
+          mkdir -p raw-images
+          find kernel-source/out/arch/arm64/boot -name "Image*" -exec cp {} raw-images/ \;
+          
+      - name: Upload Raw Image (.img files)
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Poco-M4-Raw-Images
+          path: raw-images/*

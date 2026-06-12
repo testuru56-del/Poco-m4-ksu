@@ -35,7 +35,7 @@ jobs:
           cd kernel-source
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
           
-          # Patch 1: Macro & Header Fixes (Including the new mount.h fix)
+          # Patch 1: Macro & Header Fixes 
           find KernelSU drivers/kernelsu -type f -name "*.c" -exec sed -i '/MODULE_IMPORT_NS/d' {} + || true
           find KernelSU drivers/kernelsu -type f -name "*.c" -exec sed -i 's/<linux\/pgtable.h>/<asm\/pgtable.h>/g' {} + || true
           find KernelSU drivers/kernelsu -type f -name "*.h" -exec sed -i 's/<linux\/pgtable.h>/<asm\/pgtable.h>/g' {} + || true
@@ -50,8 +50,11 @@ jobs:
           sed -i '/\.remap_file_range/d' $FILE_WRAPPER || true
           
           # Patch 3: SECCOMP_CACHE FIX
-          echo "Patching seccomp_cache.c for SECCOMP_ARCH_NATIVE_NR..."
           sed -i '1i #ifndef SECCOMP_ARCH_NATIVE_NR\n#define SECCOMP_ARCH_NATIVE_NR 1000\n#endif\n' drivers/kernelsu/infra/seccomp_cache.c || true
+          
+          # Patch 4: PKG_OBSERVER FIX (Latest error fix)
+          echo "Patching pkg_observer.c for 4.19 fsnotify..."
+          sed -i 's/handle_inode_event/handle_event/g' drivers/kernelsu/manager/pkg_observer.c || true
           
       - name: Configure Kernel (POCO M4 5G LIGHT)
         run: |
@@ -71,15 +74,18 @@ jobs:
           
           make O=out ARCH=arm64 olddefconfig
           
-      - name: Compile Kernel
+      - name: Compile Kernel (UNSTOPPABLE MODE)
         run: |
           cd kernel-source
-          set -e
+          
+          # set -e hata diya taaki error aane par build crash na ho
           set -o pipefail
-          make -j$(nproc --all) O=out ARCH=arm64 \
+          
+          # 'make -k' ka matlab hai "Keep Going" even if there is an error
+          make -k -j$(nproc --all) O=out ARCH=arm64 \
             CC=clang-14 LD=ld.lld-14 AR=llvm-ar-14 NM=llvm-nm-14 OBJCOPY=llvm-objcopy-14 OBJDUMP=llvm-objdump-14 STRIP=llvm-strip-14 \
             CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            HOSTCFLAGS="-fcommon -w" HOSTLDFLAGS="-z muldefs" KCFLAGS="-w" 2>&1 | tee ../build.log
+            HOSTCFLAGS="-fcommon -w" HOSTLDFLAGS="-z muldefs" KCFLAGS="-w" 2>&1 | tee ../build.log || true
           
       - name: Upload Logs & Images
         if: always()

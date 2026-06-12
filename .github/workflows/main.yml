@@ -5,18 +5,18 @@ on:
 
 jobs:
   build-kernel:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-latest
+    # YAHAN MAGIC HAI: Hum virtual Ubuntu 20.04 use kar rahe hain
+    container:
+      image: ubuntu:20.04
     steps:
       - name: Prepare build environment
+        env:
+          DEBIAN_FRONTEND: noninteractive
         run: |
-          sudo apt-get update
-          
-          # Yahan humne explicitly gcc-9 aur g++-9 add kiya hai
-          sudo apt-get install -y bc bison build-essential ccache curl flex git gnupg gperf liblz4-tool libncurses-dev libssl-dev libxml2 libxml2-utils lzop rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi gcc-9 g++-9
-          
-          # SERVER KO FORCE KARNA: Default compiler ko GCC 9 par set karna
-          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-9 100
-          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-9 100
+          apt-get update
+          apt-get install -y tzdata
+          apt-get install -y bc bison build-essential ccache curl flex git gnupg gperf liblz4-tool libncurses-dev libssl-dev libxml2 libxml2-utils lzop rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
           
       - name: Clone Xiaomi Kernel Source
         run: |
@@ -35,15 +35,16 @@ jobs:
           sed -i 's/-Werror//g' Makefile
           sed -i 's/-Werror//g' scripts/Makefile.build
           
-      - name: Compile Kernel (Pure GCC 9)
+          # Ek extra safety patch DTC error ke liye, just in case
+          sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.lex.c_shipped || true
+          
+      - name: Compile Kernel
         run: |
           cd kernel-source
           export ARCH=arm64
           export SUBARCH=arm64
           
-          # Ab system by default GCC 9 use karega jisme dtc error nahi aata
           make O=out ARCH=arm64 defconfig
-          
           make -j$(nproc --all) O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           
       - name: Setup AnyKernel3 and Package
@@ -63,3 +64,4 @@ jobs:
         with:
           name: KSU-Next-Poco-M4-5G
           path: KSU-Next-Poco-M4-5G.zip
+

@@ -16,7 +16,13 @@ jobs:
         run: |
           git clone --depth=1 -b light-u-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource kernel-source
           
-      - name: Deep Patch DTC (Bypass Tool Errors)
+      - name: Fix Xiaomi Missing Vendor Modules (mihw)
+        run: |
+          cd kernel-source
+          # Xiaomi ka bhula hua directory bypass karna
+          sed -i '/mihw/d' drivers/Makefile
+          
+      - name: Deep Patch DTC & Disable Protections
         run: |
           cd kernel-source
           find scripts/dtc -type f -name "*.c*" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
@@ -27,27 +33,13 @@ jobs:
           cd kernel-source
           curl -ls https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh | bash -
           
-      - name: Configure Kernel (Auto-Defconfig & KSU)
+      - name: Configure Kernel (STRICTLY defconfig)
         run: |
           cd kernel-source
           
-          # 1. Khud asli device defconfig dhundhna (No more generic basic config)
-          echo "🔍 Auto-detecting correct device defconfig..."
-          REAL_DEFCONFIG=$(find arch/arm64/configs -type f \( -iname "*light*defconfig" -o -iname "*mt6833*defconfig" \) | grep -v "debug" | head -n 1 | awk -F'arch/arm64/configs/' '{print $2}')
+          # Tumhara strict requirement
+          make O=out ARCH=arm64 defconfig
           
-          if [ -z "$REAL_DEFCONFIG" ]; then
-             echo "⚠️ Specific defconfig not found. Falling back to default."
-             REAL_DEFCONFIG="defconfig"
-          fi
-          
-          echo "========================================="
-          echo "✅ USING DEFCONFIG: $REAL_DEFCONFIG"
-          echo "========================================="
-          
-          # 2. Pehle cleanly base configuration banana
-          make O=out ARCH=arm64 $REAL_DEFCONFIG
-          
-          # 3. KernelSU aur LTO fixes ko out/.config mein safely inject karna
           echo "CONFIG_KPROBES=y" >> out/.config
           echo "CONFIG_HAVE_KPROBES=y" >> out/.config
           echo "CONFIG_KPROBE_EVENTS=y" >> out/.config
@@ -58,7 +50,6 @@ jobs:
           sed -i 's/CONFIG_CFI_CLANG=y/# CONFIG_CFI_CLANG is not set/g' out/.config
           echo "CONFIG_LTO_NONE=y" >> out/.config
           
-          # 4. Bina kisi prompt/crash ke nayi configurations set karna
           make O=out ARCH=arm64 olddefconfig
           
       - name: Compile Kernel
@@ -100,4 +91,3 @@ jobs:
         with:
           name: Poco-M4-Raw-Images
           path: raw-images/*
-

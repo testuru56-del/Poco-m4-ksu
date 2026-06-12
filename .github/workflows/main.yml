@@ -1,12 +1,6 @@
 name: Build KernelSU Next - POCO M4 5G
-
-on:
-workflow_dispatch:
-
-jobs:
-build:
-runs-on: ubuntu-22.04
-
+on: workflow_dispatch:
+jobs: build: runs-on: ubuntu-22.04
 steps:
   - name: Install Dependencies
     run: |

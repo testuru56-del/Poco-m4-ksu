@@ -16,32 +16,54 @@ jobs:
         run: |
           git clone --depth=1 -b light-u-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource kernel-source
           
-      - name: Deep Patch & Disable Protections
+      - name: Deep Patch DTC (Bypass Tool Errors)
         run: |
           cd kernel-source
           find scripts/dtc -type f -name "*.c*" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
           find scripts/dtc -type f -name "*.l" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
-          sed -i 's/CONFIG_LTO=y/# CONFIG_LTO is not set/g' arch/arm64/configs/defconfig
-          sed -i 's/CONFIG_LTO_CLANG=y/# CONFIG_LTO_CLANG is not set/g' arch/arm64/configs/defconfig
-          sed -i 's/CONFIG_CFI_CLANG=y/# CONFIG_CFI_CLANG is not set/g' arch/arm64/configs/defconfig
-          echo "CONFIG_LTO_NONE=y" >> arch/arm64/configs/defconfig
           
-      - name: Inject KernelSU Next & Configs
+      - name: Inject KernelSU Next
         run: |
           cd kernel-source
           curl -ls https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh | bash -
           
-          echo "CONFIG_KPROBES=y" >> arch/arm64/configs/defconfig
-          echo "CONFIG_HAVE_KPROBES=y" >> arch/arm64/configs/defconfig
-          echo "CONFIG_KPROBE_EVENTS=y" >> arch/arm64/configs/defconfig
-          echo "CONFIG_OVERLAY_FS=y" >> arch/arm64/configs/defconfig
+      - name: Configure Kernel (Auto-Defconfig & KSU)
+        run: |
+          cd kernel-source
+          
+          # 1. Khud asli device defconfig dhundhna (No more generic basic config)
+          echo "🔍 Auto-detecting correct device defconfig..."
+          REAL_DEFCONFIG=$(find arch/arm64/configs -type f \( -iname "*light*defconfig" -o -iname "*mt6833*defconfig" \) | grep -v "debug" | head -n 1 | awk -F'arch/arm64/configs/' '{print $2}')
+          
+          if [ -z "$REAL_DEFCONFIG" ]; then
+             echo "⚠️ Specific defconfig not found. Falling back to default."
+             REAL_DEFCONFIG="defconfig"
+          fi
+          
+          echo "========================================="
+          echo "✅ USING DEFCONFIG: $REAL_DEFCONFIG"
+          echo "========================================="
+          
+          # 2. Pehle cleanly base configuration banana
+          make O=out ARCH=arm64 $REAL_DEFCONFIG
+          
+          # 3. KernelSU aur LTO fixes ko out/.config mein safely inject karna
+          echo "CONFIG_KPROBES=y" >> out/.config
+          echo "CONFIG_HAVE_KPROBES=y" >> out/.config
+          echo "CONFIG_KPROBE_EVENTS=y" >> out/.config
+          echo "CONFIG_OVERLAY_FS=y" >> out/.config
+          
+          sed -i 's/CONFIG_LTO=y/# CONFIG_LTO is not set/g' out/.config
+          sed -i 's/CONFIG_LTO_CLANG=y/# CONFIG_LTO_CLANG is not set/g' out/.config
+          sed -i 's/CONFIG_CFI_CLANG=y/# CONFIG_CFI_CLANG is not set/g' out/.config
+          echo "CONFIG_LTO_NONE=y" >> out/.config
+          
+          # 4. Bina kisi prompt/crash ke nayi configurations set karna
+          make O=out ARCH=arm64 olddefconfig
           
       - name: Compile Kernel
         run: |
           cd kernel-source
-          make O=out ARCH=arm64 defconfig
-          
-          # STRICT ERROR CHECKING: Ab error chup nahi sakega
           set -e
           set -o pipefail
           
@@ -59,7 +81,7 @@ jobs:
             HOSTLDFLAGS="-z muldefs" \
             KCFLAGS="-w" 2>&1 | tee ../build.log
           
-      - name: Upload Error Log (Har haal mein upload hoga)
+      - name: Upload Error Log (If Failed)
         if: always()
         uses: actions/upload-artifact@v4
         with:
@@ -78,3 +100,4 @@ jobs:
         with:
           name: Poco-M4-Raw-Images
           path: raw-images/*
+

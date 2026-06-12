@@ -1,4 +1,4 @@
-name: Build KSU Next (Only Image)
+name: Build KSU (Official) for Poco M4 5G
 
 on:
   workflow_dispatch:
@@ -16,51 +16,39 @@ jobs:
         run: |
           git clone --depth=1 -b light-u-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource kernel-source
           
-      - name: Fix Xiaomi Missing Vendor Modules (MIHW NUKE 2.0)
+      - name: Fix Xiaomi Missing Vendor Modules (MIHW NUKE)
         run: |
           cd kernel-source
-          # 1. Folder ko poori tarah delete karna
           rm -rf drivers/mihw
-          # 2. Makefile se hatana
           sed -i '/mihw/d' drivers/Makefile || true
-          # 3. Kconfig se reference hatana (YEH NAYA FIX HAI)
           sed -i '/mihw/d' drivers/Kconfig || true
-          # 4. Har configuration file mein isko OFF karna
           find arch/arm64/configs -type f -exec sed -i 's/CONFIG_MIHW=y/# CONFIG_MIHW is not set/g' {} +
           
-      - name: Deep Patch DTC & Headers
+      - name: Deep Patch DTC & Headers (Ubuntu Fix)
         run: |
           cd kernel-source
           find scripts/dtc -type f -name "*.c*" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
           find scripts/dtc -type f -name "*.l" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
           
-      - name: Inject KernelSU Next & Apply Surgery
+      - name: Inject OFFICIAL KernelSU (Perfect for 4.19)
         run: |
           cd kernel-source
-          curl -ls https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh | bash -
+          # Official KSU automatically 4.19 ko support karta hai bina errors ke
+          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
           
-          # Patch 1: Header fix
-          grep -rl 'linux/pgtable.h' KernelSU-Next/ | xargs sed -i 's/linux\/pgtable.h/asm\/pgtable.h/g' || true
-          
-          # Patch 2: SURGERY - 4.19 compatibility file_wrapper.c
-          sed -i 's/return orig->f_op->iopoll(kiocb, spin);/\/\/return orig->f_op->iopoll(kiocb, spin);/' drivers/kernelsu/infra/file_wrapper.c || true
-          sed -i 's/p->ops.iopoll = fp->f_op->iopoll ? ksu_wrapper_iopoll : NULL;/p->ops.iopoll = NULL;/' drivers/kernelsu/infra/file_wrapper.c || true
-          
-      - name: Configure Kernel
+      - name: Configure Kernel (POCO M4 5G LIGHT)
         run: |
           cd kernel-source
-          # Using Light defconfig strictly
           make O=out ARCH=arm64 light_defconfig
           
+          # Standard Root Configs
           echo "CONFIG_KPROBES=y" >> out/.config
           echo "CONFIG_HAVE_KPROBES=y" >> out/.config
           echo "CONFIG_KPROBE_EVENTS=y" >> out/.config
           echo "CONFIG_OVERLAY_FS=y" >> out/.config
-          
-          # Extra security to ensure MIHW is disabled
           echo "# CONFIG_MIHW is not set" >> out/.config
           
-          # Disable Memory Protections causing linker crash
+          # Memory Protection disable (Compiler crash prevention)
           sed -i 's/CONFIG_LTO=y/# CONFIG_LTO is not set/g' out/.config
           sed -i 's/CONFIG_LTO_CLANG=y/# CONFIG_LTO_CLANG is not set/g' out/.config
           sed -i 's/CONFIG_CFI_CLANG=y/# CONFIG_CFI_CLANG is not set/g' out/.config

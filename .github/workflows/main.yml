@@ -5,24 +5,30 @@ on:
 
 jobs:
   build-kernel:
-    runs-on: ubuntu-latest
-    # YAHAN MAGIC HAI: Hum virtual Ubuntu 20.04 use kar rahe hain
-    container:
-      image: ubuntu:20.04
+    runs-on: ubuntu-22.04
     steps:
       - name: Prepare build environment
-        env:
-          DEBIAN_FRONTEND: noninteractive
         run: |
-          apt-get update
-          apt-get install -y tzdata
-          apt-get install -y bc bison build-essential ccache curl flex git gnupg gperf liblz4-tool libncurses-dev libssl-dev libxml2 libxml2-utils lzop rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+          sudo apt-get update
+          sudo apt-get install -y bc bison build-essential ccache curl flex git gnupg gperf liblz4-tool libncurses-dev libssl-dev libxml2 libxml2-utils lzop rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
           
       - name: Clone Xiaomi Kernel Source
         run: |
           git clone --depth=1 -b light-u-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource kernel-source
           
-      - name: Inject KernelSU Next & Fix Configs
+      - name: Deep Patch for DTC & Warnings
+        run: |
+          cd kernel-source
+          
+          # 1. DTC 'yylloc' Multiple Definition Fix (Surgical Patch)
+          echo "HOSTCFLAGS_dtc-lexer.lex.o += -fcommon" >> scripts/dtc/Makefile
+          echo "HOSTCFLAGS_dtc-parser.tab.o += -fcommon" >> scripts/dtc/Makefile
+          echo "KBUILD_HOSTCFLAGS += -fcommon" >> Makefile
+          
+          # 2. Poore kernel tree se -Werror ko jad se mitana taaki koi choti warning build na roke
+          find . -name Makefile -exec sed -i 's/-Werror//g' {} +
+          
+      - name: Inject KernelSU Next
         run: |
           cd kernel-source
           curl -ls https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh | bash -
@@ -31,12 +37,6 @@ jobs:
           echo "CONFIG_HAVE_KPROBES=y" >> arch/arm64/configs/defconfig
           echo "CONFIG_KPROBE_EVENTS=y" >> arch/arm64/configs/defconfig
           echo "CONFIG_OVERLAY_FS=y" >> arch/arm64/configs/defconfig
-          
-          sed -i 's/-Werror//g' Makefile
-          sed -i 's/-Werror//g' scripts/Makefile.build
-          
-          # Ek extra safety patch DTC error ke liye, just in case
-          sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' scripts/dtc/dtc-lexer.lex.c_shipped || true
           
       - name: Compile Kernel
         run: |

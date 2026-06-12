@@ -1,4 +1,4 @@
-name: Build KSU Next (Error Detector Mode)
+name: Build KSU Next (Final Image)
 
 on:
   workflow_dispatch:
@@ -30,24 +30,51 @@ jobs:
           find scripts/dtc -type f -name "*.c*" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
           find scripts/dtc -type f -name "*.l" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
           
-      - name: Inject KernelSU-Next & Apply Known Patches
+      - name: Inject KernelSU-Next & APPLY ULTIMATE 4.19 PATCHES
         run: |
           cd kernel-source
           curl -ls https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh | bash -
           
-          echo "Patching missing 4.19 headers..."
+          echo "Applying legacy 4.x forces to KernelSU-Next..."
+          
+          # 1. HACK: Force KSU to use 4.x paths instead of 5.x (Fixes SELinux and rules.c issues)
+          find KernelSU-Next drivers/kernelsu -type f -name "*.c" -exec sed -i 's/KERNEL_VERSION(5,/KERNEL_VERSION(9,/g' {} + || true
+          find KernelSU-Next drivers/kernelsu -type f -name "*.h" -exec sed -i 's/KERNEL_VERSION(5,/KERNEL_VERSION(9,/g' {} + || true
+          
+          # 2. Header and Macro Fixes
           find KernelSU-Next drivers/kernelsu -type f -name "*.c" -exec sed -i 's/<linux\/pgtable.h>/<asm\/pgtable.h>/g' {} + || true
           find KernelSU-Next drivers/kernelsu -type f -name "*.h" -exec sed -i 's/<linux\/pgtable.h>/<asm\/pgtable.h>/g' {} + || true
           find KernelSU-Next drivers/kernelsu -type f -name "*.c" -exec sed -i 's/<uapi\/linux\/mount.h>/<linux\/mount.h>/g' {} + || true
           find KernelSU-Next drivers/kernelsu -type f -name "*.h" -exec sed -i 's/<uapi\/linux\/mount.h>/<linux\/mount.h>/g' {} + || true
+          find KernelSU-Next drivers/kernelsu -type f -name "*.c" -exec sed -i '/MODULE_IMPORT_NS/d' {} + || true
           
-          echo "Applying file_wrapper.c Aggressive Surgery..."
+          # 3. Safely comment out missing struct members without breaking syntax
           FILE_WRAPPER=$(find KernelSU-Next drivers/kernelsu -type f -name "file_wrapper.c" | head -n 1)
           if [ -n "$FILE_WRAPPER" ]; then
-            # Nayi trick: Jis bhi line mein iopoll ya remap_file_range hoga, wo line turant delete ho jayegi
-            sed -i '/iopoll/d' $FILE_WRAPPER || true
-            sed -i '/remap_file_range/d' $FILE_WRAPPER || true
+            sed -i '/\.iopoll/ s/^/\/\//' $FILE_WRAPPER || true
+            sed -i '/\.remap_file_range/ s/^/\/\//' $FILE_WRAPPER || true
+            sed -i '/f_op->iopoll/ s/^/\/\//' $FILE_WRAPPER || true
+            sed -i '/f_op->remap_file_range/ s/^/\/\//' $FILE_WRAPPER || true
           fi
+          
+          # 4. Fix undeclared SECCOMP_ARCH_NATIVE_NR
+          SECCOMP=$(find KernelSU-Next drivers/kernelsu -type f -name "seccomp_cache.c" | head -n 1)
+          if [ -n "$SECCOMP" ]; then
+            sed -i '1i #ifndef SECCOMP_ARCH_NATIVE_NR\n#define SECCOMP_ARCH_NATIVE_NR 1000\n#endif\n' $SECCOMP || true
+          fi
+          
+          # 5. Fix dispatch.c missing locks and tasks headers
+          DISPATCH=$(find KernelSU-Next drivers/kernelsu -type f -name "dispatch.c" | head -n 1)
+          if [ -n "$DISPATCH" ]; then
+            sed -i '1i #include <linux/sched/signal.h>\n#include <linux/init_task.h>\nextern rwlock_t tasklist_lock;' $DISPATCH || true
+          fi
+          
+          # 6. Fix TWA_RESUME & filter_count
+          find KernelSU-Next drivers/kernelsu -type f -name "*.c" -exec sed -i 's/TWA_RESUME/true/g' {} + || true
+          find KernelSU-Next drivers/kernelsu -type f -name "*.c" -exec sed -i '/filter_count/ s/^/\/\//' {} + || true
+          
+          # 7. Fix pkg_observer fsnotify API
+          find KernelSU-Next drivers/kernelsu -type f -name "*.c" -exec sed -i 's/handle_inode_event/handle_event/g' {} + || true
           
       - name: Configure Kernel (POCO M4 5G LIGHT)
         run: |
@@ -67,25 +94,27 @@ jobs:
           
           make O=out ARCH=arm64 olddefconfig
           
-      - name: Compile Kernel (ERROR DETECTOR MODE)
+      - name: Compile Kernel (Strict Mode)
         run: |
           cd kernel-source
-          
-          # strict error crash hata diya gaya hai
+          set -e
           set -o pipefail
           
-          # '-k' flag wapas add kar diya jisse process rukega nahi
-          make -k -j$(nproc --all) O=out ARCH=arm64 \
+          make -j$(nproc --all) O=out ARCH=arm64 \
             CC=clang-14 LD=ld.lld-14 AR=llvm-ar-14 NM=llvm-nm-14 OBJCOPY=llvm-objcopy-14 OBJDUMP=llvm-objdump-14 STRIP=llvm-strip-14 \
             CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
-            HOSTCFLAGS="-fcommon -w" HOSTLDFLAGS="-z muldefs" KCFLAGS="-w" 2>&1 | tee ../build.log || true
+            HOSTCFLAGS="-fcommon -w" HOSTLDFLAGS="-z muldefs" KCFLAGS="-w" 2>&1 | tee ../build.log
           
-      - name: Upload Logs & Images
-        if: always()
+      - name: Extract Raw Kernel Images
+        if: success()
+        run: |
+          mkdir -p raw-images
+          find kernel-source/out/arch/arm64/boot -name "Image*" -exec cp {} raw-images/ \;
+          
+      - name: Upload Raw Image (.img files)
+        if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: Build-Result
-          path: |
-            build.log
-            kernel-source/out/arch/arm64/boot/Image*
+          name: Poco-M4-Raw-Images
+          path: raw-images/*
 

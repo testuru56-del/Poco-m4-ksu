@@ -16,36 +16,32 @@ jobs:
         run: |
           git clone --depth=1 -b light-u-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource kernel-source
           
-      - name: Fix Xiaomi Missing Vendor Modules (mihw)
+      - name: Fix Xiaomi Missing Vendor Modules
         run: |
           cd kernel-source
           sed -i '/mihw/d' drivers/Makefile || true
           
-      - name: Deep Patch DTC & Disable Protections
+      - name: Deep Patch DTC & Headers
         run: |
           cd kernel-source
           find scripts/dtc -type f -name "*.c*" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
           find scripts/dtc -type f -name "*.l" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
           
-      - name: Inject KernelSU Next & Fix 4.19 Headers
+      - name: Inject KernelSU Next
         run: |
           cd kernel-source
           curl -ls https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh | bash -
           
-          # FIX: 4.19 Kernel compatibility patch for KernelSU
-          echo "Patching pgtable.h for 4.19 compatibility..."
-          find drivers/kernelsu -type f -name "*.c" -exec sed -i 's/<linux\/pgtable.h>/<asm\/pgtable.h>/g' {} +
-          find drivers/kernelsu -type f -name "*.h" -exec sed -i 's/<linux\/pgtable.h>/<asm\/pgtable.h>/g' {} +
+          # 4.19 Kernel compatibility patch for KernelSU
+          find drivers/kernelsu -type f -name "*.c" -exec sed -i 's/<linux\/pgtable.h>/<asm\/pgtable.h>/g' {} + || true
+          find drivers/kernelsu -type f -name "*.h" -exec sed -i 's/<linux\/pgtable.h>/<asm\/pgtable.h>/g' {} + || true
           
-      - name: Configure Kernel (STRICTLY defconfig)
+      - name: Configure Kernel (POCO M4 5G "LIGHT" EXACT)
         run: |
           cd kernel-source
           
-          echo "========================================="
-          echo "✅ USING REAL DEVICE CONFIG: defconfig"
-          echo "========================================="
-          
-          make O=out ARCH=arm64 defconfig
+          # ASLI Device Config: light_defconfig
+          make O=out ARCH=arm64 light_defconfig
           
           echo "CONFIG_KPROBES=y" >> out/.config
           echo "CONFIG_HAVE_KPROBES=y" >> out/.config
@@ -79,7 +75,7 @@ jobs:
             HOSTLDFLAGS="-z muldefs" \
             KCFLAGS="-w" 2>&1 | tee ../build.log
           
-      - name: Upload Error Log (If Failed)
+      - name: Upload Error Log
         if: always()
         uses: actions/upload-artifact@v4
         with:

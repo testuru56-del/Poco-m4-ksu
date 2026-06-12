@@ -35,12 +35,23 @@ jobs:
           cd kernel-source
           curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -
           
-          # 1. Macro Fix (Just in case)
+          # 1. Macro & Header Fix
           find KernelSU drivers/kernelsu -type f -name "*.c" -exec sed -i '/MODULE_IMPORT_NS/d' {} + || true
-          
-          # 2. Header Fix (Ye wahi patch hai jo log mein aakhiri error dikha raha tha)
           find KernelSU drivers/kernelsu -type f -name "*.c" -exec sed -i 's/<linux\/pgtable.h>/<asm\/pgtable.h>/g' {} + || true
           find KernelSU drivers/kernelsu -type f -name "*.h" -exec sed -i 's/<linux\/pgtable.h>/<asm\/pgtable.h>/g' {} + || true
+          
+          # 2. FILE_WRAPPER.C SURGERY (Targeting exact errors from the log)
+          FILE_WRAPPER="drivers/kernelsu/infra/file_wrapper.c"
+          echo "Patching $FILE_WRAPPER for missing MTK 4.19 functions..."
+          
+          # iopoll fix
+          sed -i 's/return orig->f_op->iopoll(kiocb, spin);/return 0;/g' $FILE_WRAPPER || true
+          sed -i 's/p->ops.iopoll = fp->f_op->iopoll ? ksu_wrapper_iopoll : NULL;/p->ops.iopoll = NULL;/g' $FILE_WRAPPER || true
+          
+          # remap_file_range fix
+          sed -i 's/REMAP_FILE_DEDUP/0/g' $FILE_WRAPPER || true
+          sed -i 's/return orig->f_op->remap_file_range/return 0; \/\//g' $FILE_WRAPPER || true
+          sed -i 's/p->ops.remap_file_range = fp->f_op->remap_file_range ? ksu_wrapper_remap_file_range : NULL;/p->ops.remap_file_range = NULL;/g' $FILE_WRAPPER || true
           
       - name: Configure Kernel (POCO M4 5G LIGHT)
         run: |
@@ -78,3 +89,4 @@ jobs:
           path: |
             build.log
             kernel-source/out/arch/arm64/boot/Image*
+

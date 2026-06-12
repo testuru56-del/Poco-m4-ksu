@@ -10,11 +10,26 @@ jobs:
       - name: Prepare build environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential ccache curl flex git gnupg gperf liblz4-tool libncurses-dev libssl-dev libxml2 libxml2-utils lzop rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi libyaml-dev
+          # Official Clang-14 aur LLVM-14 toolchain add kiya gaya hai
+          sudo apt-get install -y bc bison build-essential ccache curl flex git gnupg gperf liblz4-tool libncurses-dev libssl-dev libxml2 libxml2-utils lzop rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi libyaml-dev clang-14 lld-14 llvm-14
           
       - name: Clone Xiaomi Kernel Source
         run: |
           git clone --depth=1 -b light-u-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource kernel-source
+          
+      - name: Deep Patch & Disable Protections (LTO/CFI)
+        run: |
+          cd kernel-source
+          
+          # DTC Fix (Jo pichli baar successfully kaam kar gaya tha)
+          find scripts/dtc -type f -name "*.c*" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
+          find scripts/dtc -type f -name "*.l" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
+          
+          # KSU clash rokne ke liye LTO aur CFI ko completely disable karna
+          sed -i 's/CONFIG_LTO=y/# CONFIG_LTO is not set/g' arch/arm64/configs/defconfig
+          sed -i 's/CONFIG_LTO_CLANG=y/# CONFIG_LTO_CLANG is not set/g' arch/arm64/configs/defconfig
+          sed -i 's/CONFIG_CFI_CLANG=y/# CONFIG_CFI_CLANG is not set/g' arch/arm64/configs/defconfig
+          echo "CONFIG_LTO_NONE=y" >> arch/arm64/configs/defconfig
           
       - name: Inject KernelSU Next & Configs
         run: |
@@ -26,28 +41,36 @@ jobs:
           echo "CONFIG_KPROBE_EVENTS=y" >> arch/arm64/configs/defconfig
           echo "CONFIG_OVERLAY_FS=y" >> arch/arm64/configs/defconfig
           
-      - name: Force Patch DTC (Source Level)
+      - name: Compile Kernel (With Log Catcher)
+        id: compile
         run: |
           cd kernel-source
-          # Jad se variables ko theek karna
-          find scripts/dtc -type f -name "*.c*" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
-          find scripts/dtc -type f -name "*.l" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
-          
-      - name: Compile Kernel (Command Line Overrides)
-        run: |
-          cd kernel-source
-          
           make O=out ARCH=arm64 defconfig
           
-          # DIRECT OVERRIDE: Ye flags Makefile ko overwrite kar denge aur errors ko force-bypass karenge
+          # Clang-14 force kiya gaya hai aur poora output build.log mein save hoga
           make -j$(nproc --all) O=out ARCH=arm64 \
+            CC=clang-14 \
+            LD=ld.lld-14 \
+            AR=llvm-ar-14 \
+            NM=llvm-nm-14 \
+            OBJCOPY=llvm-objcopy-14 \
+            OBJDUMP=llvm-objdump-14 \
+            STRIP=llvm-strip-14 \
             CROSS_COMPILE=aarch64-linux-gnu- \
             CROSS_COMPILE_ARM32=arm-linux-gnueabi- \
             HOSTCFLAGS="-fcommon -w" \
             HOSTLDFLAGS="-z muldefs" \
-            KCFLAGS="-w"
+            KCFLAGS="-w" 2>&1 | tee ../build.log
+          
+      - name: Upload Error Log (If Build Fails)
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: error-build-log
+          path: build.log
           
       - name: Setup AnyKernel3 and Package
+        if: success()
         run: |
           git clone https://github.com/osm0sis/AnyKernel3
           cd AnyKernel3
@@ -60,8 +83,8 @@ jobs:
           zip -r9 ../KSU-Next-Poco-M4-5G.zip *
           
       - name: Upload Kernel Zip
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: KSU-Next-Poco-M4-5G
           path: KSU-Next-Poco-M4-5G.zip
-

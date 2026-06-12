@@ -10,7 +10,13 @@ jobs:
       - name: Prepare build environment
         run: |
           sudo apt-get update
-          sudo apt-get install -y bc bison build-essential ccache curl flex git gnupg gperf liblz4-tool libncurses-dev libssl-dev libxml2 libxml2-utils lzop rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+          
+          # Yahan humne explicitly gcc-9 aur g++-9 add kiya hai
+          sudo apt-get install -y bc bison build-essential ccache curl flex git gnupg gperf liblz4-tool libncurses-dev libssl-dev libxml2 libxml2-utils lzop rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi gcc-9 g++-9
+          
+          # SERVER KO FORCE KARNA: Default compiler ko GCC 9 par set karna
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-9 100
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-9 100
           
       - name: Clone Xiaomi Kernel Source
         run: |
@@ -21,26 +27,24 @@ jobs:
           cd kernel-source
           curl -ls https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh | bash -
           
-          # Root access ke liye zaroori kernel configs
           echo "CONFIG_KPROBES=y" >> arch/arm64/configs/defconfig
           echo "CONFIG_HAVE_KPROBES=y" >> arch/arm64/configs/defconfig
           echo "CONFIG_KPROBE_EVENTS=y" >> arch/arm64/configs/defconfig
           echo "CONFIG_OVERLAY_FS=y" >> arch/arm64/configs/defconfig
           
-          # Strict warnings bypass
           sed -i 's/-Werror//g' Makefile
           sed -i 's/-Werror//g' scripts/Makefile.build
           
-      - name: Compile Kernel (Pure GCC)
+      - name: Compile Kernel (Pure GCC 9)
         run: |
           cd kernel-source
           export ARCH=arm64
           export SUBARCH=arm64
           
-          # FIX: GCC 10+ dtc multiple definition error fix karne ke liye -fcommon flag add kiya
-          make O=out ARCH=arm64 HOSTCFLAGS="-fcommon" defconfig
+          # Ab system by default GCC 9 use karega jisme dtc error nahi aata
+          make O=out ARCH=arm64 defconfig
           
-          make -j$(nproc --all) O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- HOSTCFLAGS="-fcommon"
+          make -j$(nproc --all) O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           
       - name: Setup AnyKernel3 and Package
         run: |
@@ -49,7 +53,6 @@ jobs:
           
           sed -i 's/device.name1=maguro/device.name1=light/g' anykernel.sh
           
-          # Image find and copy
           find ../kernel-source/out/arch/arm64/boot -name "Image.gz*" -exec cp {} . \;
           find ../kernel-source/out/arch/arm64/boot -name "Image" -exec cp {} . \;
           

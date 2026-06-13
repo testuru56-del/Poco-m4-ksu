@@ -1,4 +1,4 @@
-name: Fast Repack KSU Boot Image (Official OEM Method)
+name: Fast Repack KSU Boot Image (Correct Sequence)
 
 on:
   workflow_dispatch:
@@ -13,7 +13,7 @@ jobs:
           sudo apt-get install -y wget unzip python3-pip
           pip3 install gdown
 
-      - name: Download Files
+      - name: Download Stock Boot & Tool
         run: |
           mkdir repack
           cd repack
@@ -21,29 +21,27 @@ jobs:
           echo "Downloading Stock Boot (64MB)..."
           gdown "1FWNB6uFzPOsXR3o5APSP3k-Wg2hRYMdw" -O stock_boot.img
           
-          echo "Downloading KSU Engine (25MB)..."
-          gdown "1B4vYn0ZuPesPb40Q4ubs42_qrhxYyjuT" -O kernel
-
-      - name: Get Official MagiskBoot Tool
-        run: |
-          cd repack
-          
-          echo "Downloading Official Magisk v27.0 APK..."
+          echo "Downloading Official Magisk Tool..."
           wget -qO magisk.apk "https://github.com/topjohnwu/Magisk/releases/download/v27.0/Magisk-v27.0.apk"
-          
-          echo "Extracting tool directly from APK..."
           unzip -j magisk.apk "lib/x86_64/libmagiskboot.so" -d .
           mv libmagiskboot.so magiskboot
           chmod +x magiskboot
 
-      - name: Repack Image
+      - name: Repack Image (CORRECT SEQUENCE)
         run: |
           cd repack
           
-          echo "Unpacking Stock Boot..."
+          echo "1. Unpacking Stock Boot..."
           ./magiskboot unpack stock_boot.img
           
-          echo "Repacking with new KSU Engine..."
+          echo "2. Deleting Old Stock Engine..."
+          rm -f kernel
+          
+          echo "3. Injecting New KSU Engine..."
+          # Ab hum naya engine unpack hone ke BAAD laa rahe hain taaki overwrite na ho!
+          gdown "1B4vYn0ZuPesPb40Q4ubs42_qrhxYyjuT" -O kernel
+          
+          echo "4. Repacking Boot Image..."
           ./magiskboot repack stock_boot.img fastboot_ksu_boot.img
 
       - name: Upload
@@ -51,4 +49,3 @@ jobs:
         with:
           name: Poco-M4-Fastboot-KSU-Image
           path: repack/fastboot_ksu_boot.img
-

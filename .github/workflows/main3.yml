@@ -1,4 +1,4 @@
-name: Ultimate KSU Build & Repack (Wi-Fi Fix)
+name: KSU Next Build & Repack (Wi-Fi CRC Bypass)
 
 on:
   workflow_dispatch:
@@ -17,7 +17,7 @@ jobs:
         run: |
           git clone --depth=1 -b light-u-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource kernel-source
 
-      - name: Fix Xiaomi Vendor Modules
+      - name: Fix Xiaomi Vendor Modules & Deep CRC Bypass
         run: |
           cd kernel-source
           rm -rf drivers/mihw
@@ -26,37 +26,41 @@ jobs:
           find arch/arm64/configs -type f -exec sed -i 's/CONFIG_MIHW=y/# CONFIG_MIHW is not set/g' {} +
           find scripts/dtc -type f -name "*.c*" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
           find scripts/dtc -type f -name "*.l" -exec sed -i 's/^YYLTYPE yylloc;/extern YYLTYPE yylloc;/g' {} +
-
-      - name: THE WI-FI FIX (Spoofing Kernel Version)
-        run: |
-          cd kernel-source
-          # Ye line zabardasti engine ka naam stock wale se match karwa degi
+          
+          # Wi-Fi Vermagic Spoofing
           sed -i 's/echo "\$res"/echo "-perf-gb889dbe59f09"/g' scripts/setlocalversion
 
-      - name: Inject KernelSU (v0.9.5 STABLE)
+      - name: Inject KSU NEXT (The Real Game Changer)
         run: |
           cd kernel-source
-          curl -LSs "https://raw.githubusercontent.com/tiann/KernelSU/main/kernel/setup.sh" | bash -s v0.9.5
+          curl -LSs "https://raw.githubusercontent.com/rifsxd/KernelSU-Next/next/kernel/setup.sh" | bash
 
-      - name: Configure Kernel
+      - name: Configure Kernel (Disable Security Checks)
         run: |
           cd kernel-source
           make O=out ARCH=arm64 light_defconfig
+          
+          # Core KSU Next Requirements
           echo "CONFIG_KPROBES=y" >> out/.config
           echo "CONFIG_HAVE_KPROBES=y" >> out/.config
           echo "CONFIG_KPROBE_EVENTS=y" >> out/.config
           echo "CONFIG_OVERLAY_FS=y" >> out/.config
-          echo "CONFIG_KSU=y" >> out/.config
-          echo "CONFIG_KSU_SUCOMPAT=y" >> out/.config
-          echo "CONFIG_KSU_MAGIC_MOUNT=y" >> out/.config
+          
+          # The Wi-Fi CRC Disable Magic
+          echo "# CONFIG_MODVERSIONS is not set" >> out/.config
+          echo "CONFIG_MODULE_FORCE_LOAD=y" >> out/.config
+          echo "CONFIG_MODULE_SIG=n" >> out/.config
+          
+          # Compiler Fixes
           echo "# CONFIG_MIHW is not set" >> out/.config
           sed -i 's/CONFIG_LTO=y/# CONFIG_LTO is not set/g' out/.config
           sed -i 's/CONFIG_LTO_CLANG=y/# CONFIG_LTO_CLANG is not set/g' out/.config
           sed -i 's/CONFIG_CFI_CLANG=y/# CONFIG_CFI_CLANG is not set/g' out/.config
           echo "CONFIG_LTO_NONE=y" >> out/.config
+          
           make O=out ARCH=arm64 olddefconfig
 
-      - name: Compile Kernel
+      - name: Compile KSU Next Kernel
         run: |
           cd kernel-source
           make -j$(nproc --all) O=out ARCH=arm64 \
@@ -71,26 +75,23 @@ jobs:
           cd repack
           echo "Downloading Stock Boot (64MB)..."
           gdown "1FWNB6uFzPOsXR3o5APSP3k-Wg2hRYMdw" -O stock_boot.img
-          echo "Downloading Magisk Tool..."
           wget -qO magisk.apk "https://github.com/topjohnwu/Magisk/releases/download/v27.0/Magisk-v27.0.apk"
           unzip -j magisk.apk "lib/x86_64/libmagiskboot.so" -d .
           mv libmagiskboot.so magiskboot
           chmod +x magiskboot
 
-      - name: Repack Final Image
+      - name: Repack Final KSU Next Image
         if: success()
         run: |
           cd repack
           ./magiskboot unpack stock_boot.img
           rm -f kernel
-          # Asli Wi-Fi Fixed Engine yahan attach ho raha hai
           cp ../kernel-source/out/arch/arm64/boot/Image kernel
-          ./magiskboot repack stock_boot.img fastboot_ksu_boot_WIFI_FIX.img
+          ./magiskboot repack stock_boot.img fastboot_ksu_next_boot.img
 
-      - name: Upload Final Image
+      - name: Upload KSU Next Fastboot Image
         if: success()
         uses: actions/upload-artifact@v4
         with:
-          name: Poco-M4-WIFI-FIXED-KSU-Image
-          path: repack/fastboot_ksu_boot_WIFI_FIX.img
-
+          name: Poco-M4-KSU-NEXT-Image
+          path: repack/fastboot_ksu_next_boot.img

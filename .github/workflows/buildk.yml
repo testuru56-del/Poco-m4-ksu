@@ -1,94 +1,21 @@
-name: Build KernelSU Next for POCO M4 5G
-
-on:
-  workflow_dispatch:
-
-jobs:
-  build-kernel:
-    runs-on: ubuntu-22.04
-    steps:
-      - name: Setup Build Environment
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 python3-pip wget
-          pip3 install gdown
-
-      - name: Clone Xiaomi Kernel Source
-        run: |
-          git clone --depth=1 -b light-u-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git kernel
-
-      - name: Clone Proton Clang Toolchain
-        run: |
-          git clone --depth=1 https://github.com/kdrag0n/proton-clang toolchain
-
       - name: Setup KernelSU Next
         run: |
           cd kernel
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s next
           
-          # Dynamically locate the light_defconfig 
-          DEFCONFIG_PATH=$(find arch/arm64/configs -name "*light*defconfig" | head -n 1)
-          if [ -z "$DEFCONFIG_PATH" ]; then
-            echo "Could not find light defconfig. Exiting."
-            exit 1
-          fi
-          echo "Found defconfig at: $DEFCONFIG_PATH"
+          # Hardcode the exact defconfig from your screenshot
+          DEFCONFIG_FILE="arch/arm64/configs/light_defconfig"
           
           # Inject KSU and Kprobe configs
-          echo "CONFIG_KSU=y" >> $DEFCONFIG_PATH
-          echo "CONFIG_KPROBES=y" >> $DEFCONFIG_PATH
-          echo "CONFIG_HAVE_KPROBES=y" >> $DEFCONFIG_PATH
-          echo "CONFIG_KPROBE_EVENTS=y" >> $DEFCONFIG_PATH
+          # Using echo -e "\n..." ensures it starts on a new line safely
+          echo -e "\nCONFIG_KSU=y\nCONFIG_KPROBES=y\nCONFIG_HAVE_KPROBES=y\nCONFIG_KPROBE_EVENTS=y" >> $DEFCONFIG_FILE
 
       - name: Build Kernel
         run: |
           cd kernel
           export PATH=$(pwd)/../toolchain/bin:$PATH
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-          export CC=clang
           
-          # Extract defconfig filename from the path
-          DEFCONFIG_FILE=$(basename $(find arch/arm64/configs -name "*light*defconfig" | head -n 1))
-          
-          # Compile
-          make O=out $DEFCONFIG_FILE
-          make -j$(nproc) O=out LLVM=1 LLVM_IAS=1
-
-      - name: Repack Boot Image with Magiskboot
-        run: |
-          cd kernel/out/arch/arm64/boot
-          
-          # Download original crDroid boot.img from your Google Drive
-          gdown 17CbvzD_qSXdCgXvqgdlyl0nvNwKpzzT6 -O original-boot.img
-          
-          # Download magiskboot binary to handle the repacking
-          wget https://github.com/Mica-AOS/magiskboot/raw/master/magiskboot
-          chmod +x magiskboot
-          
-          # Unpack the downloaded boot image
-          ./magiskboot unpack original-boot.img
-          
-          # Overwrite the unpacked kernel with the newly compiled one
-          if [ -f "Image.gz-dtb" ]; then
-            cp Image.gz-dtb kernel
-          elif [ -f "Image.gz" ]; then
-            cp Image.gz kernel
-          elif [ -f "Image" ]; then
-            cp Image kernel
-          else
-            echo "Compiled kernel image not found!"
-            exit 1
-          fi
-          
-          # Repack the boot image with the new KSU Next kernel
-          ./magiskboot repack original-boot.img boot-KSU-Next.img
-
-      - name: Upload Flashable Boot Image
-        uses: actions/upload-artifact@v4
-        with:
-          name: KSU-Next-Boot-Image
-          path: kernel/out/arch/arm64/boot/boot-KSU-Next.img
+          # Pass arguments inline to prevent Make from dropping them
+          make O=out ARCH=arm64 SUBARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CC=clang light_defconfig
+          make -j$(nproc) O=out ARCH=arm64 SUBARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CC=clang
 

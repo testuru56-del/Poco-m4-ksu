@@ -23,7 +23,7 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/kdrag0n/proton-clang toolchain
 
-      - name: Setup KernelSU Next & Fix Xiaomi Source
+            - name: Setup KernelSU Next & Fix Xiaomi Source
         run: |
           cd kernel
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s next
@@ -31,15 +31,13 @@ jobs:
           # Hardcode the exact defconfig
           DEFCONFIG_FILE="arch/arm64/configs/light_defconfig"
           
-          # Inject KSU and Kprobe configs safely
-          echo -e "\nCONFIG_KSU=y\nCONFIG_KPROBES=y\nCONFIG_HAVE_KPROBES=y\nCONFIG_KPROBE_EVENTS=y" >> $DEFCONFIG_FILE
+          # Inject KSU, Kprobe, and DISABLE WERROR (The critical fix for 4.19 on modern Clang)
+          echo -e "\nCONFIG_KSU=y\nCONFIG_KPROBES=y\nCONFIG_HAVE_KPROBES=y\nCONFIG_KPROBE_EVENTS=y\nCONFIG_WERROR=n" >> $DEFCONFIG_FILE
 
-          # THE FIX: Create a dummy Makefile to stop the compiler from crashing 
-          # due to Xiaomi's missing proprietary vendor directories.
+          # Fix Xiaomi's missing proprietary vendor directories
           mkdir -p vendor/xiaomi/kernel_modules/mihw
           touch vendor/xiaomi/kernel_modules/mihw/Makefile
           
-          # Force disable the missing module so it doesn't look for empty C files
           echo "CONFIG_MIHW=n" >> $DEFCONFIG_FILE
           sed -i 's/obj-y += mihw\//# obj-y += mihw\//g' drivers/Makefile || true
           sed -i 's/obj-$(CONFIG_MIHW) += mihw\//# obj-$(CONFIG_MIHW) += mihw\//g' drivers/Makefile || true
@@ -49,7 +47,10 @@ jobs:
           cd kernel
           export PATH=$(pwd)/../toolchain/bin:$PATH
           
-          # Notice: Using GNU Binutils fallback to prevent assembly crashes
+          # Add '-w' to suppress all warnings so Clang doesn't crash on old code
+          # Explicitly set KBUILD_CFLAGS to override any strict error settings
+          export KBUILD_CFLAGS="-w"
+          
           make O=out ARCH=arm64 SUBARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CC=clang HOSTCFLAGS="-fcommon" light_defconfig
           make -j$(nproc) O=out ARCH=arm64 SUBARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CC=clang HOSTCFLAGS="-fcommon"
 

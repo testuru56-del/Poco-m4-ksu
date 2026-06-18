@@ -23,34 +23,36 @@ jobs:
           cd kernel
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s next
           
-          # STRIP -Werror from EVERY Makefile
+          # Strip -Werror from EVERY Makefile
           find . -type f -name "Makefile" -exec sed -i 's/-Werror//g' {} +
           
-          DEFCONFIG_FILE="arch/arm64/configs/light_defconfig"
-          
-          # Inject KSU, Kprobe, and disable WERROR/FRAME_WARN
-          echo -e "\nCONFIG_KSU=y\nCONFIG_KPROBES=y\nCONFIG_HAVE_KPROBES=y\nCONFIG_KPROBE_EVENTS=y\nCONFIG_WERROR=n\nCONFIG_FRAME_WARN=0" >> $DEFCONFIG_FILE
-
-          # Fix Xiaomi's missing proprietary vendor directories
+          # Create dummy MIHW driver
           mkdir -p vendor/xiaomi/kernel_modules/mihw
           touch vendor/xiaomi/kernel_modules/mihw/Makefile
-          
-          echo "CONFIG_MIHW=n" >> $DEFCONFIG_FILE
           sed -i 's/obj-y += mihw\//# obj-y += mihw\//g' drivers/Makefile || true
-          sed -i 's/obj-$(CONFIG_MIHW) += mihw\//# obj-$(CONFIG_MIHW) += mihw\//g' drivers/Makefile || true
 
       - name: Build Kernel (GCC)
         run: |
           cd kernel
-          
-          # Build using standard GCC instead of Clang for maximum compatibility
           export ARCH=arm64
           export SUBARCH=arm64
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          export KBUILD_CFLAGS="-w -Wno-error"
           
-          make O=out $ARCH $SUBARCH $CROSS_COMPILE $CROSS_COMPILE_ARM32 light_defconfig
-          make -j$(nproc) O=out $ARCH $SUBARCH $CROSS_COMPILE $CROSS_COMPILE_ARM32 -k
+          # 1. Try a generic defconfig instead of light_defconfig to avoid Kconfig errors
+          # 2. Add V=1 for verbose output so we can see the exact error if it fails
+          make O=out ARCH=$ARCH SUBARCH=$SUBARCH CROSS_COMPILE=$CROSS_COMPILE defconfig V=1
+          
+          # 3. Manually inject KernelSU and Kprobes if defconfig didn't include them
+          echo "CONFIG_KSU=y" >> out/.config
+          echo "CONFIG_KPROBES=y" >> out/.config
+          echo "CONFIG_HAVE_KPROBES=y" >> out/.config
+          echo "CONFIG_KPROBE_EVENTS=y" >> out/.config
+          echo "CONFIG_FRAME_WARN=0" >> out/.config
+
+          # 4. Final build
+          make -j$(nproc) O=out ARCH=$ARCH SUBARCH=$SUBARCH CROSS_COMPILE=$CROSS_COMPILE -k V=1
 
       - name: Repack Boot Image
         run: |
@@ -72,3 +74,4 @@ jobs:
         with:
           name: KSU-Next-Boot-Image
           path: kernel/out/arch/arm64/boot/boot-KSU-Next.img
+

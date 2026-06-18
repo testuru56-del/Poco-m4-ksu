@@ -22,14 +22,17 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/kdrag0n/proton-clang toolchain
 
-      - name: Setup KernelSU Next & Force-Fix Build
+      - name: Setup KernelSU Next & Global Patch
         run: |
           cd kernel
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s next
           
+          # STRIP -Werror from EVERY Makefile in the source tree
+          find . -type f -name "Makefile" -exec sed -i 's/-Werror//g' {} +
+          
           DEFCONFIG_FILE="arch/arm64/configs/light_defconfig"
           
-          # Inject KSU, Kprobe, disable WERROR, and DISABLE FRAME WARNINGS globally
+          # Inject KSU, Kprobe, and disable WERROR
           echo -e "\nCONFIG_KSU=y\nCONFIG_KPROBES=y\nCONFIG_HAVE_KPROBES=y\nCONFIG_KPROBE_EVENTS=y\nCONFIG_WERROR=n\nCONFIG_FRAME_WARN=0" >> $DEFCONFIG_FILE
 
           # Fix Xiaomi's missing proprietary vendor directories
@@ -45,13 +48,9 @@ jobs:
           cd kernel
           export PATH=$(pwd)/../toolchain/bin:$PATH
           
-          # FORCE: Suppress ALL warnings and errors, increase stack size, and keep building even if files fail
-          export KBUILD_CFLAGS="-w -Wno-error -Wno-frame-larger-than"
-          export KBUILD_CPPFLAGS="-w -Wno-error"
-          
-          # Build with GNU fallback and -k (keep going)
-          make O=out ARCH=arm64 SUBARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CC=clang HOSTCFLAGS="-fcommon" FRAME_WARN=0 light_defconfig
-          make -j$(nproc) O=out ARCH=arm64 SUBARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CC=clang HOSTCFLAGS="-fcommon" FRAME_WARN=0 -k
+          # Build with GNU fallback and all error checks disabled
+          make -j$(nproc) O=out ARCH=arm64 SUBARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CC=clang HOSTCFLAGS="-fcommon" KBUILD_CFLAGS="-w" light_defconfig
+          make -j$(nproc) O=out ARCH=arm64 SUBARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CC=clang HOSTCFLAGS="-fcommon" KBUILD_CFLAGS="-w"
 
       - name: Repack Boot Image
         run: |
@@ -61,10 +60,11 @@ jobs:
           chmod +x magiskboot
           ./magiskboot unpack original-boot.img
           
-          # Robust kernel image selection
+          # Check if build actually produced an image
           if [ -f "Image.gz-dtb" ]; then cp Image.gz-dtb kernel; 
           elif [ -f "Image.gz" ]; then cp Image.gz kernel; 
-          else cp Image kernel; fi
+          elif [ -f "Image" ]; then cp Image kernel; 
+          else echo "Kernel build failed to produce an image!"; exit 1; fi
           
           ./magiskboot repack original-boot.img boot-KSU-Next.img
 

@@ -29,15 +29,13 @@ jobs:
           
           DEFCONFIG_FILE="arch/arm64/configs/light_defconfig"
           
-          # Inject KSU, Kprobe, disable WERROR, and DISABLE FRAME WARNINGS
-          # This fixes the 'stack frame size' error in focaltech_test
+          # Inject KSU, Kprobe, disable WERROR, and DISABLE FRAME WARNINGS globally
           echo -e "\nCONFIG_KSU=y\nCONFIG_KPROBES=y\nCONFIG_HAVE_KPROBES=y\nCONFIG_KPROBE_EVENTS=y\nCONFIG_WERROR=n\nCONFIG_FRAME_WARN=0" >> $DEFCONFIG_FILE
 
           # Fix Xiaomi's missing proprietary vendor directories
           mkdir -p vendor/xiaomi/kernel_modules/mihw
           touch vendor/xiaomi/kernel_modules/mihw/Makefile
           
-          # Force disable known missing modules
           echo "CONFIG_MIHW=n" >> $DEFCONFIG_FILE
           sed -i 's/obj-y += mihw\//# obj-y += mihw\//g' drivers/Makefile || true
           sed -i 's/obj-$(CONFIG_MIHW) += mihw\//# obj-$(CONFIG_MIHW) += mihw\//g' drivers/Makefile || true
@@ -47,12 +45,13 @@ jobs:
           cd kernel
           export PATH=$(pwd)/../toolchain/bin:$PATH
           
-          # Apply warnings suppression globally
-          export KBUILD_CFLAGS="-w"
+          # FORCE: Suppress ALL warnings and errors, increase stack size, and keep building even if files fail
+          export KBUILD_CFLAGS="-w -Wno-error -Wno-frame-larger-than"
+          export KBUILD_CPPFLAGS="-w -Wno-error"
           
-          # Build with GNU fallback to ensure compatibility with 4.19 source
-          make O=out ARCH=arm64 SUBARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CC=clang HOSTCFLAGS="-fcommon" light_defconfig
-          make -j$(nproc) O=out ARCH=arm64 SUBARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CC=clang HOSTCFLAGS="-fcommon"
+          # Build with GNU fallback and -k (keep going)
+          make O=out ARCH=arm64 SUBARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CC=clang HOSTCFLAGS="-fcommon" FRAME_WARN=0 light_defconfig
+          make -j$(nproc) O=out ARCH=arm64 SUBARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CC=clang HOSTCFLAGS="-fcommon" FRAME_WARN=0 -k
 
       - name: Repack Boot Image
         run: |

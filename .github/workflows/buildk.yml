@@ -4,31 +4,6 @@ on:
   workflow_dispatch:
 
 jobs:
-  bu-ild-kernel:
-    runs-on: ubuntu-22.04
-    container: ubuntu:20.04
-    steps:
-      - name: Setup Build Environment
-        run: |
-          apt-get update
-          # FIX: Removed multilib and 32-bit legacy libs to prevent the Ubuntu 20.04 apt conflict
-          DEBIAN_FRONTEND=noninteractive apt-get install -y bc bison build-essential ccache curl flex git gnupg gperf imagemagick liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 python3-pip wget cpio python-is-python3 kmod xz-utils gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
-          pip3 install gdown
-
-      - name: Clone Xiaomi Kernel Source
-        run: |
-          git clone --depth=1 -b light-u-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git kernel
-
-      - name: Clone Proton Clang Toolchain
-        run: |
-          git clone --depth=1 https://github.com/kdrag0n/proton-clang toolchain
-
-name: Build KernelSU Next for POCO M4 5G
-
-on:
-  workflow_dispatch:
-
-jobs:
   build-kernel:
     runs-on: ubuntu-22.04
     container: ubuntu:20.04
@@ -36,7 +11,6 @@ jobs:
       - name: Setup Build Environment
         run: |
           apt-get update
-          # FIX: Removed multilib and 32-bit legacy libs to prevent the Ubuntu 20.04 apt conflict
           DEBIAN_FRONTEND=noninteractive apt-get install -y bc bison build-essential ccache curl flex git gnupg gperf imagemagick liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 python3-pip wget cpio python-is-python3 kmod xz-utils gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
           pip3 install gdown
 
@@ -48,23 +22,21 @@ jobs:
         run: |
           git clone --depth=1 https://github.com/kdrag0n/proton-clang toolchain
 
-      - name: Setup KernelSU Next & Fix Xiaomi Source
+      - name: Setup KernelSU Next & Force-Fix Build
         run: |
           cd kernel
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s next
           
-          # Hardcode the exact defconfig
           DEFCONFIG_FILE="arch/arm64/configs/light_defconfig"
           
-          # Inject KSU and Kprobe configs safely
-          echo -e "\nCONFIG_KSU=y\nCONFIG_KPROBES=y\nCONFIG_HAVE_KPROBES=y\nCONFIG_KPROBE_EVENTS=y" >> $DEFCONFIG_FILE
+          # Inject KSU, Kprobe, and disable WERROR to stop compiler crashes
+          echo -e "\nCONFIG_KSU=y\nCONFIG_KPROBES=y\nCONFIG_HAVE_KPROBES=y\nCONFIG_KPROBE_EVENTS=y\nCONFIG_WERROR=n" >> $DEFCONFIG_FILE
 
-          # THE FIX: Create a dummy Makefile to stop the compiler from crashing 
-          # due to Xiaomi's missing proprietary vendor directories.
+          # Fix Xiaomi's missing proprietary vendor directories
           mkdir -p vendor/xiaomi/kernel_modules/mihw
           touch vendor/xiaomi/kernel_modules/mihw/Makefile
           
-          # Force disable the missing module so it doesn't look for empty C files
+          # Force disable known missing modules
           echo "CONFIG_MIHW=n" >> $DEFCONFIG_FILE
           sed -i 's/obj-y += mihw\//# obj-y += mihw\//g' drivers/Makefile || true
           sed -i 's/obj-$(CONFIG_MIHW) += mihw\//# obj-$(CONFIG_MIHW) += mihw\//g' drivers/Makefile || true
@@ -74,77 +46,23 @@ jobs:
           cd kernel
           export PATH=$(pwd)/../toolchain/bin:$PATH
           
-          # Notice: Using GNU Binutils fallback to prevent assembly crashes
+          # Apply warnings suppression globally
+          export KBUILD_CFLAGS="-w"
+          
+          # Build with GNU fallback to ensure compatibility with 4.19 source
           make O=out ARCH=arm64 SUBARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CC=clang HOSTCFLAGS="-fcommon" light_defconfig
-          make -j$(nproc) O=out ARCH=arm64 SUBARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CC=clang HOSTCFLAGS="-fcommon"
+          make -j$(nproc) O=out ARCH=arm64 SUBARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CC=clang HOSTCFLAGS="-fcommon" || make -j1 O=out ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CC=clang HOSTCFLAGS="-fcommon"
 
-      - name: Repack Boot Image with Magiskboot
+      - name: Repack Boot Image
         run: |
           cd kernel/out/arch/arm64/boot
-          
-          # Download original crDroid boot.img from your Google Drive
           gdown 17CbvzD_qSXdCgXvqgdlyl0nvNwKpzzT6 -O original-boot.img
-          
-          # Download magiskboot binary to handle the repacking
           wget https://github.com/Mica-AOS/magiskboot/raw/master/magiskboot
           chmod +x magiskboot
-          
-          # Unpack the downloaded boot image
           ./magiskboot unpack original-boot.img
           
-          # Overwrite the unpacked kernel with the newly compiled one
-          if [ -f "Image.gz-dtb" ]; then
-            cp Image.gz-dtb kernel
-          elif [ -f "Image.gz" ]; then
-            cp Image.gz kernel
-          elif [ -f "Image" ]; then
-            cp Image kernel
-          else
-            echo "Compiled kernel image not found!"
-            exit 1
-          fi
-          
-          # Repack the boot image with the new KSU Next kernel
-          ./magiskboot repack original-boot.img boot-KSU-Next.img
-
-      - name: Upload Flashable Boot Image
-        uses: actions/upload-artifact@v4
-        with:
-          name: KSU-Next-Boot-Image
-          path: kernel/out/arch/arm64/boot/boot-KSU-Next.img
-
-      - name: Repack Boot Image with Magiskboot
-        run: |
-          cd kernel/out/arch/arm64/boot
-          
-          # Download original crDroid boot.img from your Google Drive
-          gdown 17CbvzD_qSXdCgXvqgdlyl0nvNwKpzzT6 -O original-boot.img
-          
-          # Download magiskboot binary to handle the repacking
-          wget https://github.com/Mica-AOS/magiskboot/raw/master/magiskboot
-          chmod +x magiskboot
-          
-          # Unpack the downloaded boot image
-          ./magiskboot unpack original-boot.img
-          
-          # Overwrite the unpacked kernel with the newly compiled one
-          if [ -f "Image.gz-dtb" ]; then
-            cp Image.gz-dtb kernel
-          elif [ -f "Image.gz" ]; then
-            cp Image.gz kernel
-          elif [ -f "Image" ]; then
-            cp Image kernel
-          else
-            echo "Compiled kernel image not found!"
-            exit 1
-          fi
-          
-          # Repack the boot image with the new KSU Next kernel
-          ./magiskboot repack original-boot.img boot-KSU-Next.img
-
-      - name: Upload Flashable Boot Image
-        uses: actions/upload-artifact@v4
-        with:
-          name: KSU-Next-Boot-Image
-          path: kernel/out/arch/arm64/boot/boot-KSU-Next.img
+          # Robust kernel image selection
+          if [ -f "Image.gz-dtb" ]; then cp Image.gz-dtb kernel; 
+          elif [ -f "Image.gz" ]; then cp Image.gz kernel; 
+          else cp
 

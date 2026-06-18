@@ -6,13 +6,12 @@ on:
 jobs:
   build-kernel:
     runs-on: ubuntu-22.04
-    # Run everything inside a 20.04 container to fix OpenSSL 3.0 and GCC 11 errors
     container: ubuntu:20.04
     steps:
       - name: Setup Build Environment
         run: |
           apt-get update
-          DEBIAN_FRONTEND=noninteractive apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 python3-pip wget
+          DEBIAN_FRONTEND=noninteractive apt-get install -y bc bison build-essential ccache curl flex g++-multilib gcc-multilib git gnupg gperf imagemagick lib32ncurses5-dev lib32readline-dev lib32z1-dev liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 python3-pip wget cpio python-is-python3 kmod xz-utils
           pip3 install gdown
 
       - name: Clone Xiaomi Kernel Source
@@ -39,9 +38,9 @@ jobs:
           cd kernel
           export PATH=$(pwd)/../toolchain/bin:$PATH
           
-          # Pass arguments inline to prevent Make from dropping them
-          make O=out ARCH=arm64 SUBARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CC=clang light_defconfig
-          make -j$(nproc) O=out ARCH=arm64 SUBARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CC=clang
+          # Compile with explicit LLVM flags so it uses ld.lld and llvm-ar instead of standard GNU tools
+          make O=out ARCH=arm64 SUBARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CC=clang LLVM=1 LLVM_IAS=1 light_defconfig
+          make -j$(nproc) O=out ARCH=arm64 SUBARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CC=clang LLVM=1 LLVM_IAS=1
 
       - name: Repack Boot Image with Magiskboot
         run: |

@@ -18,21 +18,17 @@ jobs:
         run: |
           git clone --depth=1 -b light-u-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git kernel
 
-      - name: Clone Proton Clang Toolchain
-        run: |
-          git clone --depth=1 https://github.com/kdrag0n/proton-clang toolchain
-
       - name: Setup KernelSU Next & Global Patch
         run: |
           cd kernel
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s next
           
-          # STRIP -Werror from EVERY Makefile in the source tree
+          # STRIP -Werror from EVERY Makefile
           find . -type f -name "Makefile" -exec sed -i 's/-Werror//g' {} +
           
           DEFCONFIG_FILE="arch/arm64/configs/light_defconfig"
           
-          # Inject KSU, Kprobe, and disable WERROR
+          # Inject KSU, Kprobe, and disable WERROR/FRAME_WARN
           echo -e "\nCONFIG_KSU=y\nCONFIG_KPROBES=y\nCONFIG_HAVE_KPROBES=y\nCONFIG_KPROBE_EVENTS=y\nCONFIG_WERROR=n\nCONFIG_FRAME_WARN=0" >> $DEFCONFIG_FILE
 
           # Fix Xiaomi's missing proprietary vendor directories
@@ -43,14 +39,18 @@ jobs:
           sed -i 's/obj-y += mihw\//# obj-y += mihw\//g' drivers/Makefile || true
           sed -i 's/obj-$(CONFIG_MIHW) += mihw\//# obj-$(CONFIG_MIHW) += mihw\//g' drivers/Makefile || true
 
-      - name: Build Kernel
+      - name: Build Kernel (GCC)
         run: |
           cd kernel
-          export PATH=$(pwd)/../toolchain/bin:$PATH
           
-          # Build with GNU fallback and all error checks disabled
-          make -j$(nproc) O=out ARCH=arm64 SUBARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CC=clang HOSTCFLAGS="-fcommon" KBUILD_CFLAGS="-w" light_defconfig
-          make -j$(nproc) O=out ARCH=arm64 SUBARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CC=clang HOSTCFLAGS="-fcommon" KBUILD_CFLAGS="-w"
+          # Build using standard GCC instead of Clang for maximum compatibility
+          export ARCH=arm64
+          export SUBARCH=arm64
+          export CROSS_COMPILE=aarch64-linux-gnu-
+          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
+          
+          make O=out $ARCH $SUBARCH $CROSS_COMPILE $CROSS_COMPILE_ARM32 light_defconfig
+          make -j$(nproc) O=out $ARCH $SUBARCH $CROSS_COMPILE $CROSS_COMPILE_ARM32 -k
 
       - name: Repack Boot Image
         run: |
@@ -60,11 +60,10 @@ jobs:
           chmod +x magiskboot
           ./magiskboot unpack original-boot.img
           
-          # Check if build actually produced an image
+          # Select kernel image
           if [ -f "Image.gz-dtb" ]; then cp Image.gz-dtb kernel; 
           elif [ -f "Image.gz" ]; then cp Image.gz kernel; 
-          elif [ -f "Image" ]; then cp Image kernel; 
-          else echo "Kernel build failed to produce an image!"; exit 1; fi
+          else cp Image kernel; fi
           
           ./magiskboot repack original-boot.img boot-KSU-Next.img
 

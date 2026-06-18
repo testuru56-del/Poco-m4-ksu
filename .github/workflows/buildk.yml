@@ -1,3 +1,27 @@
+name: Build KernelSU Next for POCO M4 5G
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build-kernel:
+    runs-on: ubuntu-22.04
+    container: ubuntu:20.04
+    steps:
+      - name: Setup Build Environment
+        run: |
+          apt-get update
+          DEBIAN_FRONTEND=noninteractive apt-get install -y bc bison build-essential ccache curl flex git gnupg gperf imagemagick liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 python3-pip wget cpio python-is-python3 kmod xz-utils gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
+          pip3 install gdown
+
+      - name: Clone Xiaomi Kernel Source
+        run: |
+          git clone --depth=1 -b light-u-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git kernel
+
+      - name: Clone Proton Clang Toolchain
+        run: |
+          git clone --depth=1 https://github.com/kdrag0n/proton-clang toolchain
+
       - name: Setup KernelSU Next & Force-Fix Build
         run: |
           cd kernel
@@ -6,12 +30,47 @@
           DEFCONFIG_FILE="arch/arm64/configs/light_defconfig"
           
           # Inject KSU, Kprobe, disable WERROR, and DISABLE FRAME WARNINGS
+          # This fixes the 'stack frame size' error in focaltech_test
           echo -e "\nCONFIG_KSU=y\nCONFIG_KPROBES=y\nCONFIG_HAVE_KPROBES=y\nCONFIG_KPROBE_EVENTS=y\nCONFIG_WERROR=n\nCONFIG_FRAME_WARN=0" >> $DEFCONFIG_FILE
 
           # Fix Xiaomi's missing proprietary vendor directories
           mkdir -p vendor/xiaomi/kernel_modules/mihw
           touch vendor/xiaomi/kernel_modules/mihw/Makefile
           
+          # Force disable known missing modules
           echo "CONFIG_MIHW=n" >> $DEFCONFIG_FILE
           sed -i 's/obj-y += mihw\//# obj-y += mihw\//g' drivers/Makefile || true
           sed -i 's/obj-$(CONFIG_MIHW) += mihw\//# obj-$(CONFIG_MIHW) += mihw\//g' drivers/Makefile || true
+
+      - name: Build Kernel
+        run: |
+          cd kernel
+          export PATH=$(pwd)/../toolchain/bin:$PATH
+          
+          # Apply warnings suppression globally
+          export KBUILD_CFLAGS="-w"
+          
+          # Build with GNU fallback to ensure compatibility with 4.19 source
+          make O=out ARCH=arm64 SUBARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CC=clang HOSTCFLAGS="-fcommon" light_defconfig
+          make -j$(nproc) O=out ARCH=arm64 SUBARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- CROSS_COMPILE_ARM32=arm-linux-gnueabi- CROSS_COMPILE_COMPAT=arm-linux-gnueabi- CC=clang HOSTCFLAGS="-fcommon"
+
+      - name: Repack Boot Image
+        run: |
+          cd kernel/out/arch/arm64/boot
+          gdown 17CbvzD_qSXdCgXvqgdlyl0nvNwKpzzT6 -O original-boot.img
+          wget https://github.com/Mica-AOS/magiskboot/raw/master/magiskboot
+          chmod +x magiskboot
+          ./magiskboot unpack original-boot.img
+          
+          # Robust kernel image selection
+          if [ -f "Image.gz-dtb" ]; then cp Image.gz-dtb kernel; 
+          elif [ -f "Image.gz" ]; then cp Image.gz kernel; 
+          else cp Image kernel; fi
+          
+          ./magiskboot repack original-boot.img boot-KSU-Next.img
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: KSU-Next-Boot-Image
+          path: kernel/out/arch/arm64/boot/boot-KSU-Next.img

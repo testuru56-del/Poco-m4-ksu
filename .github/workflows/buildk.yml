@@ -1,82 +1,29 @@
-name: Build KernelSU Next for POCO M4 5G
+name: Build KSU Next Kernel
 
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build-kernel:
+    name: Build Kernel
     runs-on: ubuntu-22.04
-    container: ubuntu:20.04
     steps:
-      - name: Setup Build Environment
-        run: |
-          apt-get update
-          DEBIAN_FRONTEND=noninteractive apt-get install -y bc bison build-essential ccache curl flex git gnupg gperf imagemagick liblz4-tool libncurses5 libncurses5-dev libsdl1.2-dev libssl-dev libxml2 libxml2-utils lzop pngcrush rsync schedtool squashfs-tools xsltproc zip zlib1g-dev python3 python3-pip wget cpio python-is-python3 kmod xz-utils gcc-aarch64-linux-gnu gcc-arm-linux-gnueabi
-          pip3 install gdown
-
-      - name: Clone Xiaomi Kernel Source
-        run: |
-          git clone --depth=1 -b light-u-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git kernel
-
-      - name: Setup KernelSU Next & Nuke Broken Files
-        run: |
-          cd kernel
-          curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s next
-          
-          # 1. Strip -Werror from EVERY Makefile so it stops treating warnings as fatal
-          find . -type f -name "Makefile" -exec sed -i 's/-Werror//g' {} +
-          
-          # 2. NUKE the broken Xiaomi touchscreen Kconfig that is destroying the config generator
-          echo "" > drivers/input/touchscreen/mediatek/hxchipset_hx83102p/Kconfig
-          
-          # 3. Setup dummy directories for missing proprietary modules
-          mkdir -p vendor/xiaomi/kernel_modules/mihw
-          touch vendor/xiaomi/kernel_modules/mihw/Makefile
-          
-          # 4. Inject all required configs into the defconfig
-          DEFCONFIG_FILE="arch/arm64/configs/light_defconfig"
-          echo -e "\nCONFIG_MODULES=n\nCONFIG_KSU=y\nCONFIG_KPROBES=y\nCONFIG_HAVE_KPROBES=y\nCONFIG_KPROBE_EVENTS=y\nCONFIG_WERROR=n\nCONFIG_FRAME_WARN=0" >> $DEFCONFIG_FILE
-
-      - name: Build Kernel (Zero Excuses)
-        run: |
-          cd kernel
-          make mrproper
-          
-          export ARCH=arm64
-          export SUBARCH=arm64
-          export CROSS_COMPILE=aarch64-linux-gnu-
-          export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
-          
-          mkdir -p out
-          
-          # Bypass the broken 'make light_defconfig' command entirely by directly copying the file
-          cp arch/arm64/configs/light_defconfig out/.config
-          
-          # Use olddefconfig to automatically set default answers and prevent hangs
-          make O=out ARCH=$ARCH SUBARCH=$SUBARCH CROSS_COMPILE=$CROSS_COMPILE olddefconfig
-          
-          # Force build, ignoring all driver compilation errors (-i)
-          make -j$(nproc) O=out ARCH=$ARCH SUBARCH=$SUBARCH CROSS_COMPILE=$CROSS_COMPILE -i
-
-      - name: Repack Boot Image
-        run: |
-          cd kernel/out/arch/arm64/boot
-          gdown 17CbvzD_qSXdCgXvqgdlyl0nvNwKpzzT6 -O original-boot.img
-          wget https://github.com/Mica-AOS/magiskboot/raw/master/magiskboot
-          chmod +x magiskboot
-          ./magiskboot unpack original-boot.img
-          
-          # Safely select whatever kernel image was successfully generated
-          if [ -f "Image.gz-dtb" ]; then cp Image.gz-dtb kernel; 
-          elif [ -f "Image.gz" ]; then cp Image.gz kernel; 
-          elif [ -f "Image" ]; then cp Image kernel; 
-          else echo "Build failed, no Image generated." && exit 1; fi
-          
-          ./magiskboot repack original-boot.img boot-KSU-Next.img
-
-      - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+      - name: Build
+        uses: dabao1955/kernel_build_action@main
         with:
-          name: KSU-Next-Boot-Image
-          path: kernel/out/arch/arm64/boot/boot-KSU-Next.img
-
+          kernel-url: https://github.com/MiCode/Xiaomi_Kernel_OpenSource
+          kernel-branch: light-u-oss
+          config: light_debug_defconfig
+          arch: arm64
+          android-version: 14
+          aosp-clang: true
+          aosp-gcc: true
+          ksu: true
+          ksu-other: true
+          ksu-url: https://github.com/KernelSU-Next/KernelSU-Next
+          anykernel3: true
+          release: true
+          access-token: ${{ secrets.GITHUB_TOKEN }}

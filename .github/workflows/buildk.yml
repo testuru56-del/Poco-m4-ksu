@@ -18,26 +18,28 @@ jobs:
         run: |
           git clone --depth=1 -b light-u-oss https://github.com/MiCode/Xiaomi_Kernel_OpenSource.git kernel
 
-      - name: Setup KernelSU Next & Patch
+      - name: Setup KernelSU Next & Nuke Broken Files
         run: |
           cd kernel
           curl -LSs "https://raw.githubusercontent.com/KernelSU-Next/KernelSU-Next/next/kernel/setup.sh" | bash -s next
           
-          # Patch every Makefile to remove -Werror (Compiler safety check)
+          # 1. Strip -Werror from EVERY Makefile so it stops treating warnings as fatal
           find . -type f -name "Makefile" -exec sed -i 's/-Werror//g' {} +
           
-          # Setup dummy directories
+          # 2. NUKE the broken Xiaomi touchscreen Kconfig that is destroying the config generator
+          echo "" > drivers/input/touchscreen/mediatek/hxchipset_hx83102p/Kconfig
+          
+          # 3. Setup dummy directories for missing proprietary modules
           mkdir -p vendor/xiaomi/kernel_modules/mihw
           touch vendor/xiaomi/kernel_modules/mihw/Makefile
           
-          # Force set the config variables in the defconfig file
-          # We use "n" for modules to bypass the driver build failure
-          echo -e "\nCONFIG_MODULES=n\nCONFIG_KSU=y\nCONFIG_KPROBES=y\nCONFIG_HAVE_KPROBES=y\nCONFIG_KPROBE_EVENTS=y\nCONFIG_WERROR=n\nCONFIG_FRAME_WARN=0" >> arch/arm64/configs/light_defconfig
+          # 4. Inject all required configs into the defconfig
+          DEFCONFIG_FILE="arch/arm64/configs/light_defconfig"
+          echo -e "\nCONFIG_MODULES=n\nCONFIG_KSU=y\nCONFIG_KPROBES=y\nCONFIG_HAVE_KPROBES=y\nCONFIG_KPROBE_EVENTS=y\nCONFIG_WERROR=n\nCONFIG_FRAME_WARN=0" >> $DEFCONFIG_FILE
 
-      - name: Build Kernel (Aggressive)
+      - name: Build Kernel (Zero Excuses)
         run: |
           cd kernel
-          # Clean everything before building
           make mrproper
           
           export ARCH=arm64
@@ -45,13 +47,15 @@ jobs:
           export CROSS_COMPILE=aarch64-linux-gnu-
           export CROSS_COMPILE_ARM32=arm-linux-gnueabi-
           
-          # Configure
-          make O=out ARCH=$ARCH SUBARCH=$SUBARCH CROSS_COMPILE=$CROSS_COMPILE light_defconfig
+          mkdir -p out
           
-          # Override config to ensure modules are disabled
-          echo "CONFIG_MODULES=n" >> out/.config
+          # Bypass the broken 'make light_defconfig' command entirely by directly copying the file
+          cp arch/arm64/configs/light_defconfig out/.config
           
-          # Build: -i tells make to ignore errors, continuing even if a driver fails
+          # Use olddefconfig to automatically set default answers and prevent hangs
+          make O=out ARCH=$ARCH SUBARCH=$SUBARCH CROSS_COMPILE=$CROSS_COMPILE olddefconfig
+          
+          # Force build, ignoring all driver compilation errors (-i)
           make -j$(nproc) O=out ARCH=$ARCH SUBARCH=$SUBARCH CROSS_COMPILE=$CROSS_COMPILE -i
 
       - name: Repack Boot Image
@@ -62,9 +66,11 @@ jobs:
           chmod +x magiskboot
           ./magiskboot unpack original-boot.img
           
+          # Safely select whatever kernel image was successfully generated
           if [ -f "Image.gz-dtb" ]; then cp Image.gz-dtb kernel; 
           elif [ -f "Image.gz" ]; then cp Image.gz kernel; 
-          else cp Image kernel; fi
+          elif [ -f "Image" ]; then cp Image kernel; 
+          else echo "Build failed, no Image generated." && exit 1; fi
           
           ./magiskboot repack original-boot.img boot-KSU-Next.img
 
